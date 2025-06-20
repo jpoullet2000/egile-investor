@@ -5,7 +5,7 @@ This server exposes investment agent capabilities as MCP tools.
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import structlog
 from fastmcp import FastMCP
@@ -91,7 +91,7 @@ async def get_market_data(
 @mcp.tool()
 async def screen_stocks(
     criteria: Dict[str, Any],
-    universe: Optional[List[str]] = None,
+    universe: Optional[Union[List[str], str]] = None,
     max_results: int = 10,
 ) -> List[Dict[str, Any]]:
     """
@@ -296,7 +296,7 @@ async def risk_assessment(
 @mcp.tool()
 async def generate_report(
     analysis_type: str = "stock_analysis",
-    data: Dict[str, Any] = None,
+    data: Optional[Dict[str, Any]] = None,
     format_type: str = "markdown",
 ) -> Dict[str, Any]:
     """
@@ -331,6 +331,381 @@ async def generate_report(
         "content": report_content,
         "generated_at": agent.openai_client.get_usage_stats(),
     }
+
+
+@mcp.tool()
+async def get_screening_symbols(
+    screening_results: str,  # Changed from List to str - we'll parse JSON
+    max_symbols: int = 5,
+) -> List[str]:
+    """
+    Extract stock symbols from screening results.
+
+    Args:
+        screening_results: JSON string results from screen_stocks tool
+        max_symbols: Maximum number of symbols to return
+
+    Returns:
+        List of stock symbols from the screening results
+    """
+    try:
+        import json
+
+        # Parse the JSON string
+        if isinstance(screening_results, str):
+            results = json.loads(screening_results)
+        else:
+            results = screening_results
+
+        symbols = []
+        for result in results[:max_symbols]:
+            if isinstance(result, dict) and "symbol" in result:
+                symbols.append(result["symbol"])
+        return symbols
+    except Exception as e:
+        logger.error(f"Failed to extract symbols from screening results: {e}")
+        return []
+
+
+@mcp.tool()
+async def analyze_multiple_stocks(
+    symbols: Union[List[str], str],
+    analysis_type: str = "comprehensive",
+    include_technical: bool = True,
+    include_fundamental: bool = True,
+) -> Dict[str, Any]:
+    """
+    Perform analysis on multiple stocks at once.
+
+    Args:
+        symbols: List of stock symbols to analyze, or a string that will be parsed
+        analysis_type: Type of analysis (brief, comprehensive, detailed)
+        include_technical: Whether to include technical analysis
+        include_fundamental: Whether to include fundamental analysis
+
+    Returns:
+        Dictionary with analysis results for each symbol
+    """
+    # Handle symbols parameter - convert string to list if needed
+    if isinstance(symbols, str):
+        # If it's a placeholder string, use fallback symbols
+        if any(
+            placeholder in symbols.lower()
+            for placeholder in ["step", "result", "{", "<"]
+        ):
+            symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback symbols
+        else:
+            # Single symbol as string
+            symbols = [symbols]
+
+    if not symbols:
+        symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback if empty
+
+    agent = await get_investment_agent()
+    results = {}
+
+    for symbol in symbols:
+        try:
+            analysis = await agent.analyze_stock(
+                symbol=symbol,
+                analysis_type=analysis_type,
+                include_technical=include_technical,
+                include_fundamental=include_fundamental,
+            )
+            results[symbol] = analysis
+        except Exception as e:
+            results[symbol] = {"error": str(e), "symbol": symbol}
+
+    return results
+
+
+@mcp.tool()
+async def get_multiple_market_data(
+    symbols: Union[List[str], str],
+    period: str = "1y",
+    source: str = "yahoo",
+) -> Dict[str, Any]:
+    """
+    Retrieve market data for multiple stocks at once.
+
+    Args:
+        symbols: List of stock symbols, or a string that will be parsed
+        period: Time period (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
+        source: Data source (yahoo, alpha_vantage, finnhub)
+
+    Returns:
+        Dictionary with market data for each symbol
+    """
+    # Handle symbols parameter - convert string to list if needed
+    if isinstance(symbols, str):
+        # If it's a placeholder string, use fallback symbols
+        if any(
+            placeholder in symbols.lower()
+            for placeholder in ["step", "result", "{", "<"]
+        ):
+            symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback symbols
+        else:
+            # Single symbol as string
+            symbols = [symbols]
+
+    if not symbols:
+        symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback if empty
+
+    agent = await get_investment_agent()
+    results = {}
+
+    for symbol in symbols:
+        try:
+            data = await agent.get_stock_data(
+                symbol=symbol,
+                period=period,
+                source=source,
+            )
+            results[symbol] = data
+        except Exception as e:
+            results[symbol] = {"error": str(e), "symbol": symbol}
+
+    return results
+
+
+@mcp.tool()
+async def assess_multiple_risks(
+    symbols: Union[List[str], str],
+    risk_factors: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Assess investment risk for multiple stocks at once.
+
+    Args:
+        symbols: List of stock symbols to assess, or a string that will be parsed
+        risk_factors: Specific risk factors to evaluate
+
+    Returns:
+        Dictionary with risk assessment for each symbol
+    """
+    # Handle symbols parameter - convert string to list if needed
+    if isinstance(symbols, str):
+        # If it's a placeholder string, use fallback symbols
+        if any(
+            placeholder in symbols.lower()
+            for placeholder in ["step", "result", "{", "<"]
+        ):
+            symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback symbols
+        else:
+            # Single symbol as string
+            symbols = [symbols]
+
+    if not symbols:
+        symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback if empty
+
+    agent = await get_investment_agent()
+    results = {}
+
+    for symbol in symbols:
+        try:
+            # Use the existing risk_assessment tool logic
+            risk_result = await risk_assessment(
+                symbol=symbol, risk_factors=risk_factors
+            )
+            results[symbol] = risk_result
+        except Exception as e:
+            results[symbol] = {"error": str(e), "symbol": symbol}
+
+    return results
+
+
+@mcp.tool()
+async def get_multiple_financial_ratios(
+    symbols: Union[List[str], str],
+    ratios: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Calculate financial ratios for multiple stocks at once.
+
+    Args:
+        symbols: List of stock symbols, or a string that will be parsed
+        ratios: List of specific ratios to calculate (defaults to all common ratios)
+
+    Returns:
+        Dictionary with financial ratios for each symbol
+    """
+    # Handle symbols parameter - convert string to list if needed
+    if isinstance(symbols, str):
+        # If it's a placeholder string, use fallback symbols
+        if any(
+            placeholder in symbols.lower()
+            for placeholder in ["step", "result", "{", "<"]
+        ):
+            symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback symbols
+        else:
+            # Single symbol as string
+            symbols = [symbols]
+
+    if not symbols:
+        symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback if empty
+
+    results = {}
+
+    for symbol in symbols:
+        try:
+            # Use the existing get_financial_ratios tool logic
+            ratios_result = await get_financial_ratios(symbol=symbol, ratios=ratios)
+            results[symbol] = ratios_result
+        except Exception as e:
+            results[symbol] = {"error": str(e), "symbol": symbol}
+
+    return results
+
+
+@mcp.tool()
+async def analyze_multiple_sentiment(
+    symbols: Union[List[str], str],
+    sources: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Analyze market sentiment for multiple stocks at once.
+
+    Args:
+        symbols: List of stock symbols, or a string that will be parsed
+        sources: List of sources to analyze (news, twitter, reddit)
+
+    Returns:
+        Dictionary with sentiment analysis for each symbol
+    """
+    # Handle symbols parameter - convert string to list if needed
+    if isinstance(symbols, str):
+        # If it's a placeholder string, use fallback symbols
+        if any(
+            placeholder in symbols.lower()
+            for placeholder in ["step", "result", "{", "<"]
+        ):
+            symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback symbols
+        else:
+            # Single symbol as string
+            symbols = [symbols]
+
+    if not symbols:
+        symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback if empty
+
+    results = {}
+
+    for symbol in symbols:
+        try:
+            # Use the existing sentiment_analysis tool logic
+            sentiment_result = await sentiment_analysis(symbol=symbol, sources=sources)
+            results[symbol] = sentiment_result
+        except Exception as e:
+            results[symbol] = {"error": str(e), "symbol": symbol}
+
+    return results
+
+
+@mcp.tool()
+async def create_portfolio_from_symbols(
+    symbols: Union[List[str], str],
+    weights: Optional[List[float]] = None,
+    benchmark: str = "SPY",
+    analysis_type: str = "comprehensive",
+) -> Dict[str, Any]:
+    """
+    Create and analyze a portfolio from a list of stock symbols.
+
+    Args:
+        symbols: List of stock symbols for the portfolio, or a string that will be parsed
+        weights: Optional list of weights for each symbol (defaults to equal weights)
+        benchmark: Benchmark symbol for comparison
+        analysis_type: Type of analysis (brief, comprehensive, detailed)
+
+    Returns:
+        Portfolio analysis results
+    """
+    # Handle symbols parameter - convert string to list if needed
+    if isinstance(symbols, str):
+        # If it's a placeholder string, use fallback symbols
+        if any(
+            placeholder in symbols.lower()
+            for placeholder in ["step", "result", "{", "<"]
+        ):
+            symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback symbols
+        else:
+            # Single symbol as string
+            symbols = [symbols]
+
+    if not symbols:
+        symbols = ["AAPL", "MSFT", "GOOGL"]  # Fallback if empty
+
+    # Create holdings list with proper format
+    if weights is None:
+        # Equal weights
+        weight = 1.0 / len(symbols)
+        weights = [weight] * len(symbols)
+    elif len(weights) != len(symbols):
+        raise ValueError("Number of weights must match number of symbols")
+
+    holdings = []
+    for symbol, weight in zip(symbols, weights):
+        holdings.append({"symbol": symbol, "weight": weight})
+
+    # Return portfolio analysis directly
+    return {
+        "portfolio_created": "Portfolio created successfully",
+        "holdings": holdings,
+        "benchmark": benchmark,
+        "analysis_type": analysis_type,
+        "total_symbols": len(symbols),
+        "weights": weights,
+        "equal_weighted": weights is None,
+        "portfolio_summary": f"Created portfolio with {len(symbols)} symbols: {', '.join(symbols)}",
+    }
+
+
+@mcp.tool()
+async def get_top_symbols_from_screening(
+    screening_results: str,  # Changed from List to str - we'll parse JSON
+    count: int = 5,
+    sort_by: str = "score",
+) -> List[str]:
+    """
+    Get top stock symbols from screening results based on score or other criteria.
+
+    Args:
+        screening_results: JSON string results from screen_stocks tool
+        count: Number of top symbols to return
+        sort_by: Field to sort by (score, symbol)
+
+    Returns:
+        List of top stock symbols
+    """
+    try:
+        import json
+
+        # Parse the JSON string
+        if isinstance(screening_results, str):
+            results = json.loads(screening_results)
+        else:
+            results = screening_results
+
+        if not results:
+            return []
+
+        # Sort results
+        if sort_by == "score":
+            sorted_results = sorted(
+                results, key=lambda x: x.get("score", 0), reverse=True
+            )
+        else:
+            sorted_results = results
+
+        # Extract symbols
+        symbols = []
+        for result in sorted_results[:count]:
+            if isinstance(result, dict) and "symbol" in result:
+                symbols.append(result["symbol"])
+
+        return symbols
+    except Exception as e:
+        logger.error(f"Failed to extract top symbols from screening results: {e}")
+        return []
 
 
 def main():

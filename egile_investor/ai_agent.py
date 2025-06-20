@@ -359,6 +359,32 @@ Respond with a JSON array of steps."""
                     context["stock_analysis"] = result
                 elif tool_name == "screen_stocks" and isinstance(result, list):
                     context["screened_stocks"] = result
+                    # Extract symbols from screening results
+                    symbols = []
+                    for stock in result:
+                        if isinstance(stock, dict) and "symbol" in stock:
+                            symbols.append(stock["symbol"])
+                    if symbols:
+                        context["stored_symbols"] = symbols
+                        logger.info(
+                            f"Stored {len(symbols)} screened symbols: {symbols[:3]}..."
+                        )
+                elif tool_name == "get_screening_symbols" and isinstance(result, list):
+                    # Store symbols directly if they're returned as a list
+                    context["stored_symbols"] = result
+                    logger.info(
+                        f"Stored {len(result)} screened symbols: {result[:3]}..."
+                    )
+                elif (
+                    tool_name == "get_screening_symbols"
+                    and isinstance(result, dict)
+                    and "symbols" in result
+                ):
+                    # Store symbols if they're in a dict format
+                    context["stored_symbols"] = result["symbols"]
+                    logger.info(
+                        f"Stored {len(result['symbols'])} screened symbols: {result['symbols'][:3]}..."
+                    )
 
                 step_result = {
                     "step": step_num,
@@ -391,31 +417,15 @@ Respond with a JSON array of steps."""
         self, tool_name: str, arguments: Dict[str, Any], context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Enhance tool arguments with context from previous steps.
-
-        Args:
-            tool_name: Name of the tool being called
-            arguments: Original arguments
-            context: Context from previous steps
-
-        Returns:
-            Enhanced arguments
+        Basic enhancement of tool arguments - most logic moved to MCP server tools.
         """
         enhanced = arguments.copy()
 
-        # If we need stock data and have analysis from previous steps
+        # Simple symbol extraction for single symbol tools
         if tool_name == "risk_assessment" and "symbol" not in enhanced:
             stock_analysis = context.get("stock_analysis", {})
             if stock_analysis and "symbol" in stock_analysis:
                 enhanced["symbol"] = stock_analysis["symbol"]
-                logger.info("Enhanced risk_assessment with symbol from stock analysis")
-
-        # If we're doing portfolio analysis and have screened stocks
-        if tool_name == "analyze_portfolio" and "stocks" not in enhanced:
-            screened_stocks = context.get("screened_stocks", [])
-            if screened_stocks:
-                enhanced["stocks"] = [stock["symbol"] for stock in screened_stocks[:5]]
-                logger.info("Enhanced portfolio analysis with screened stocks")
 
         return enhanced
 
