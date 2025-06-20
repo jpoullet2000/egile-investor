@@ -489,6 +489,10 @@ Respond with a JSON array of steps."""
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
 
+    async def close(self):
+        """Close the agent and clean up resources."""
+        await self.__aexit__(None, None, None)
+
 
 # Convenience function for quick AI-powered investment analysis
 async def ai_investment_analysis(task: str) -> Dict[str, Any]:
