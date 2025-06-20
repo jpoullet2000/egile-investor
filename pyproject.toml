@@ -1,0 +1,77 @@
+[project]
+name = "egile_investor"
+version = "0.1.0"
+description = "Egile Investor: AI-powered investment analysis and stock research automation"
+authors = [
+    {name = "Jean-Baptiste Poullet", email = "jeanbaptistepoullet@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "azure-identity>=1.15.0",
+    "azure-keyvault-secrets>=4.8.0",
+    "openai>=1.12.0",
+    "fastmcp>=0.2.0",
+    "mcp>=1.0.0",
+    "pydantic>=2.5.0",
+    "asyncio-throttle>=1.0.2",
+    "tenacity>=8.2.3",
+    "structlog>=23.2.0",
+    "httpx>=0.26.0",
+    "python-dotenv>=1.0.0",
+    "typing-extensions>=4.9.0",
+    "jinja2>=3.1.0",
+    "pandas>=2.0.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "aiofiles>=23.2.0",
+    "python-dateutil>=2.8.0",
+    "yfinance>=0.2.0",
+    "alpha-vantage>=2.3.0",
+    "finnhub-python>=2.4.0",
+    "quandl>=3.7.0",
+    "investpy>=1.0.8",
+    "pandas-datareader>=0.10.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "scikit-learn>=1.3.0",
+    "ta>=0.10.0",
+    "plotly>=5.15.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "flake8>=6.0.0"
+]
+
+[project.scripts]
+egile-investor-server = "egile_investor.server:main"
+
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["egile_investor*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.11"
+disallow_untyped_defs = true
+ignore_missing_imports = true
