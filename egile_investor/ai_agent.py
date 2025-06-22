@@ -448,12 +448,187 @@ Respond with a JSON array of steps."""
         # Execute the plan
         results = await self._execute_plan(plan)
 
+        # Validate that results answer the user query and create investment report
+        investment_report = await self._create_final_investment_report(task, results)
+
         return {
             "task": task,
             "plan": plan,
             "execution_results": results,
             "summary": self._create_summary(results),
+            "investment_report": investment_report,
         }
+
+    async def _create_final_investment_report(
+        self, task: str, results: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Create a final investment report that validates the analysis answers the user's query.
+
+        Args:
+            task: Original user task/query
+            results: Execution results from the analysis
+
+        Returns:
+            Investment report or validation error
+        """
+        try:
+            # Extract analysis results for the report
+            analysis_data = []
+            for result in results:
+                if result.get("success") and result.get("result"):
+                    analysis_data.append(result["result"])
+
+            # Extract investment amount if mentioned in the task
+            investment_amount = None
+            import re
+
+            amount_match = re.search(r"\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)", task)
+            if amount_match:
+                investment_amount = float(amount_match.group(1).replace(",", ""))
+
+            # Validate that we have sufficient data to answer the query
+            validation_result = await self._validate_analysis_completeness(
+                task, analysis_data
+            )
+
+            if validation_result["is_sufficient"]:
+                # Use the new MCP tool to create investment report
+                report_result = await self.call_tool(
+                    "create_investment_report",
+                    {
+                        "user_query": task,
+                        "analysis_results": analysis_data,
+                        "investment_amount": investment_amount,
+                    },
+                )
+
+                return {
+                    "status": "success",
+                    "validation": validation_result,
+                    "report": report_result,
+                }
+            else:
+                return {
+                    "status": "insufficient_data",
+                    "validation": validation_result,
+                    "fallback_advice": await self._generate_fallback_advice(
+                        task, investment_amount
+                    ),
+                }
+
+        except Exception as e:
+            logger.error(f"Error creating investment report: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "fallback_advice": await self._generate_fallback_advice(task, None),
+            }
+
+    async def _validate_analysis_completeness(
+        self, task: str, analysis_data: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Validate that the analysis results are sufficient to answer the user's query.
+
+        Args:
+            task: Original user query
+            analysis_data: Results from analysis steps
+
+        Returns:
+            Validation result with sufficiency assessment
+        """
+        validation = {
+            "is_sufficient": False,
+            "has_stock_recommendations": False,
+            "has_risk_assessment": False,
+            "has_financial_metrics": False,
+            "missing_elements": [],
+            "confidence_score": 0.0,
+        }
+
+        # Check for stock recommendations
+        for data in analysis_data:
+            if isinstance(data, dict):
+                if "symbol" in data or "symbols" in data:
+                    validation["has_stock_recommendations"] = True
+                if any(key in data for key in ["risk_level", "volatility", "beta"]):
+                    validation["has_risk_assessment"] = True
+                if any(key in data for key in ["pe_ratio", "roe", "dividend_yield"]):
+                    validation["has_financial_metrics"] = True
+
+        # Check for list of stocks from screening
+        for data in analysis_data:
+            if isinstance(data, list) and len(data) > 0:
+                if isinstance(data[0], dict) and "symbol" in data[0]:
+                    validation["has_stock_recommendations"] = True
+
+        # Determine missing elements
+        if not validation["has_stock_recommendations"]:
+            validation["missing_elements"].append("stock_recommendations")
+        if not validation["has_risk_assessment"]:
+            validation["missing_elements"].append("risk_assessment")
+        if not validation["has_financial_metrics"]:
+            validation["missing_elements"].append("financial_metrics")
+
+        # Calculate confidence score
+        score = 0
+        if validation["has_stock_recommendations"]:
+            score += 0.5
+        if validation["has_risk_assessment"]:
+            score += 0.3
+        if validation["has_financial_metrics"]:
+            score += 0.2
+
+        validation["confidence_score"] = score
+        validation["is_sufficient"] = (
+            score >= 0.5
+        )  # Need at least stock recommendations
+
+        return validation
+
+    async def _generate_fallback_advice(
+        self, task: str, investment_amount: Optional[float]
+    ) -> Dict[str, Any]:
+        """
+        Generate general investment advice when analysis is insufficient.
+
+        Args:
+            task: Original user query
+            investment_amount: Investment amount if specified
+
+        Returns:
+            General investment advice
+        """
+        amount = investment_amount or 10000
+
+        advice = {
+            "general_recommendations": [
+                "Consider diversified index funds (S&P 500, Total Stock Market)",
+                "Look for blue-chip stocks with consistent dividend history",
+                "Diversify across sectors (technology, healthcare, consumer goods)",
+                "Use dollar-cost averaging over 3-6 months",
+            ],
+            "allocation_suggestion": {
+                "index_funds": f"${amount * 0.6:,.0f} (60%)",
+                "individual_stocks": f"${amount * 0.3:,.0f} (30%)",
+                "cash_reserves": f"${amount * 0.1:,.0f} (10%)",
+            },
+            "risk_management": [
+                "Start with low-cost index funds for broad market exposure",
+                "Gradually add individual stocks as you gain experience",
+                "Keep 3-6 months of expenses in emergency fund",
+                "Review and rebalance quarterly",
+            ],
+            "next_steps": [
+                "Research specific sectors that interest you",
+                "Consider consulting with a financial advisor",
+                "Start with small positions to gain experience",
+                "Continue learning about fundamental analysis",
+            ],
+        }
+
+        return advice
 
     def _create_summary(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Create a summary of the execution results."""

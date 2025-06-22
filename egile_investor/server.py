@@ -709,6 +709,217 @@ async def get_top_symbols_from_screening(
         return []
 
 
+@mcp.tool()
+async def create_investment_report(
+    user_query: str,
+    analysis_results: List[Dict[str, Any]],
+    investment_amount: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Create a comprehensive investment report that directly answers the user's query.
+
+    Args:
+        user_query: The original user question/request
+        analysis_results: List of analysis results from previous steps
+        investment_amount: Amount to invest (if specified in query)
+
+    Returns:
+        Investment report with specific recommendations and reasoning
+    """
+
+    def extract_investment_insights(results):
+        """Extract actionable investment insights from analysis results."""
+        stocks_found = []
+        risks_identified = []
+        financial_metrics = {}
+        sentiment_data = {}
+
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+
+            # Extract stock symbols and scores
+            if "symbol" in result:
+                stocks_found.append(
+                    {
+                        "symbol": result["symbol"],
+                        "score": result.get("score", 0),
+                        "recommendation": result.get("recommendation", "HOLD"),
+                        "confidence": result.get("confidence", "Medium"),
+                    }
+                )
+            elif "symbols" in result and isinstance(result["symbols"], list):
+                for symbol in result["symbols"][:5]:
+                    stocks_found.append(
+                        {
+                            "symbol": symbol,
+                            "score": result.get("score", 0),
+                            "recommendation": "ANALYZE",
+                            "confidence": "Medium",
+                        }
+                    )
+
+            # Extract risk information
+            if "risk_level" in result:
+                risks_identified.append(f"Risk Level: {result['risk_level']}")
+            if "volatility" in result:
+                risks_identified.append(f"Volatility: {result['volatility']}")
+            if "beta" in result:
+                risks_identified.append(f"Beta: {result['beta']}")
+
+            # Extract financial metrics
+            if "pe_ratio" in result:
+                financial_metrics["pe_ratio"] = result["pe_ratio"]
+            if "roe" in result:
+                financial_metrics["roe"] = result["roe"]
+            if "dividend_yield" in result:
+                financial_metrics["dividend_yield"] = result["dividend_yield"]
+
+            # Extract sentiment
+            if "sentiment_score" in result:
+                sentiment_data[result.get("symbol", "market")] = {
+                    "score": result["sentiment_score"],
+                    "trend": result.get("sentiment_trend", "neutral"),
+                }
+
+        # Remove duplicates and rank stocks
+        unique_stocks = {}
+        for stock in stocks_found:
+            symbol = stock["symbol"]
+            if (
+                symbol not in unique_stocks
+                or stock["score"] > unique_stocks[symbol]["score"]
+            ):
+                unique_stocks[symbol] = stock
+
+        ranked_stocks = sorted(
+            unique_stocks.values(), key=lambda x: x["score"], reverse=True
+        )
+
+        return {
+            "stocks": ranked_stocks[:5],  # Top 5 stocks
+            "risks": risks_identified[:5],
+            "financial_metrics": financial_metrics,
+            "sentiment": sentiment_data,
+        }
+
+    def analyze_query_intent(query):
+        """Analyze the user query to understand investment intent."""
+        query_lower = query.lower()
+
+        intent = {
+            "investment_type": "general",
+            "risk_preference": "moderate",
+            "time_horizon": "long-term",
+            "sectors": [],
+            "criteria": [],
+        }
+
+        # Detect investment type
+        if any(word in query_lower for word in ["dividend", "income", "yield"]):
+            intent["investment_type"] = "dividend"
+        elif any(word in query_lower for word in ["growth", "appreciate", "long-term"]):
+            intent["investment_type"] = "growth"
+        elif any(word in query_lower for word in ["hedge", "defensive", "safe"]):
+            intent["investment_type"] = "defensive"
+
+        # Detect risk preference
+        if any(
+            word in query_lower
+            for word in ["low risk", "safe", "conservative", "stable"]
+        ):
+            intent["risk_preference"] = "low"
+        elif any(
+            word in query_lower for word in ["high risk", "aggressive", "volatile"]
+        ):
+            intent["risk_preference"] = "high"
+
+        # Detect sectors
+        if "tech" in query_lower or "technology" in query_lower:
+            intent["sectors"].append("Technology")
+        if "healthcare" in query_lower or "health" in query_lower:
+            intent["sectors"].append("Healthcare")
+
+        return intent
+
+    # Extract insights from analysis results
+    insights = extract_investment_insights(analysis_results)
+    query_intent = analyze_query_intent(user_query)
+
+    # Generate investment recommendations
+    recommendations = []
+    if insights["stocks"]:
+        total_stocks = min(len(insights["stocks"]), 3)  # Max 3 recommendations
+        allocation_per_stock = (investment_amount or 10000) / total_stocks
+
+        for i, stock in enumerate(insights["stocks"][:total_stocks]):
+            recommendation = {
+                "rank": i + 1,
+                "symbol": stock["symbol"],
+                "allocation": round(allocation_per_stock),
+                "reasoning": [],
+                "confidence": stock.get("confidence", "Medium"),
+            }
+
+            # Add reasoning based on query intent and stock data
+            if query_intent["investment_type"] == "dividend" and insights[
+                "financial_metrics"
+            ].get("dividend_yield"):
+                recommendation["reasoning"].append(
+                    "Strong dividend yield for income generation"
+                )
+            elif query_intent["investment_type"] == "growth":
+                recommendation["reasoning"].append(
+                    "Consistent growth patterns over past 5 years"
+                )
+
+            if stock.get("score", 0) > 0.7:
+                recommendation["reasoning"].append(
+                    "High analytical score indicating strong fundamentals"
+                )
+
+            if (
+                insights["sentiment"].get(stock["symbol"], {}).get("trend")
+                == "positive"
+            ):
+                recommendation["reasoning"].append("Positive market sentiment trend")
+
+            if not recommendation["reasoning"]:
+                recommendation["reasoning"].append(
+                    "Meets screening criteria for the requested investment profile"
+                )
+
+            recommendations.append(recommendation)
+
+    # Create comprehensive report
+    report = {
+        "query_analysis": {
+            "original_query": user_query,
+            "investment_intent": query_intent,
+            "investment_amount": investment_amount or 10000,
+        },
+        "recommendations": recommendations,
+        "risk_assessment": {
+            "key_risks": insights["risks"],
+            "overall_risk_level": query_intent["risk_preference"],
+            "diversification_advice": "Spread investments across recommended stocks to reduce concentration risk",
+        },
+        "investment_strategy": {
+            "approach": f"{query_intent['investment_type'].title()} investing with {query_intent['risk_preference']} risk profile",
+            "time_horizon": query_intent["time_horizon"],
+            "rebalancing": "Review quarterly and rebalance if allocation drifts >5%",
+            "monitoring": "Track key financial metrics and market sentiment monthly",
+        },
+        "market_insights": {
+            "financial_metrics": insights["financial_metrics"],
+            "sentiment_overview": insights["sentiment"],
+        },
+        "disclaimer": "This analysis is generated by AI and should not be considered as professional financial advice. Always consult with a qualified financial advisor before making investment decisions.",
+    }
+
+    return report
+
+
 def main():
     """Main entry point for the MCP server."""
     try:
