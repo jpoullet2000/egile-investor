@@ -7,7 +7,7 @@ across different data sources and tools, optimized for financial workflows.
 
 import asyncio
 import json
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 from datetime import datetime, timedelta
 import logging
 
@@ -541,17 +541,136 @@ class InvestmentAgent:
         except Exception:
             return "Unknown"
 
+    def _load_symbols_from_yaml(self, universe: str = "sp500") -> List[str]:
+        """Load stock symbols from YAML configuration file."""
+        try:
+            import yaml
+            import os
+
+            # Path to the YAML file
+            yaml_path = os.path.join(
+                os.path.dirname(__file__), "..", "data", "sp500.yml"
+            )
+
+            if not os.path.exists(yaml_path):
+                # Try alternative path for development
+                yaml_path = os.path.join(os.getcwd(), "data", "sp500.yml")
+
+            with open(yaml_path, "r", encoding="utf-8") as file:
+                data = yaml.safe_load(file)
+
+            # Map universe names to YAML keys
+            universe_mapping = {
+                "sp500": "sp500_symbols",
+                "nasdaq100": "nasdaq100_symbols",
+                "dow30": "dow30_symbols",
+            }
+
+            key = universe_mapping.get(universe, "sp500_symbols")
+            symbols = data.get(key, [])
+
+            # Clean symbols (handle BRK.B -> BRK-B for Yahoo Finance)
+            clean_symbols = []
+            for symbol in symbols:
+                clean_symbol = str(symbol).replace(".", "-").upper()
+                clean_symbols.append(clean_symbol)
+
+            logger.info(f"Loaded {len(clean_symbols)} symbols from {universe} universe")
+            return clean_symbols
+
+        except Exception as e:
+            logger.error(f"Failed to load symbols from YAML: {e}")
+            return self._get_fallback_symbols()
+
+    def _get_fallback_symbols(self) -> List[str]:
+        """Get minimal fallback list of major stocks."""
+        return [
+            "AAPL",
+            "MSFT",
+            "GOOGL",
+            "AMZN",
+            "TSLA",
+            "META",
+            "NVDA",
+            "NFLX",
+            "JNJ",
+            "PFE",
+            "UNH",
+            "JPM",
+            "BAC",
+            "HD",
+            "PG",
+            "KO",
+            "WMT",
+            "COST",
+            "XOM",
+            "CVX",
+            "COP",
+            "BA",
+            "CAT",
+            "HON",
+            "LMT",
+            "RTX",
+            "GE",
+            "MMM",
+        ]
+
+    async def _get_sp500_symbols(self) -> List[str]:
+        """
+        Get the list of S&P 500 stock symbols.
+
+        Returns:
+            List of S&P 500 stock symbols
+        """
+        try:
+            # First try to load from YAML file
+            symbols = self._load_symbols_from_yaml("sp500")
+            if symbols:
+                return symbols
+
+        except Exception as e:
+            logger.warning(f"Failed to load from YAML, trying Wikipedia: {e}")
+
+        try:
+            # Fallback to Wikipedia (most up-to-date)
+            import pandas as pd
+
+            url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+            table = pd.read_html(url)
+            sp500_table = table[0]
+            symbols = sp500_table["Symbol"].tolist()
+
+            # Clean symbols (remove dots, convert to uppercase)
+            clean_symbols = []
+            for symbol in symbols:
+                # Handle special cases like BRK.B -> BRK-B for Yahoo Finance
+                clean_symbol = str(symbol).replace(".", "-").upper()
+                clean_symbols.append(clean_symbol)
+
+            logger.info(
+                f"Retrieved {len(clean_symbols)} S&P 500 symbols from Wikipedia"
+            )
+            return clean_symbols
+
+        except Exception as e:
+            logger.warning(f"Wikipedia fallback failed: {e}")
+            return self._get_fallback_symbols()
+
     async def screen_stocks(
         self,
         criteria: Dict[str, Any],
-        universe: List[str] = None,
+        universe: Optional[Union[List[str], str]] = None,
+        max_results: int = 10,
+        use_sp500: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Screen stocks based on specified criteria.
 
         Args:
             criteria: Screening criteria (PE ratio, market cap, etc.)
-            universe: List of symbols to screen (defaults to S&P 500)
+            universe: List of symbols to screen, or "sp500" for S&P 500, or "major" for major stocks
+            max_results: Maximum number of results to return
+            use_sp500: If True, screen all S&P 500 stocks (overrides universe)
 
         Returns:
             List of stocks meeting the criteria
@@ -559,49 +678,115 @@ class InvestmentAgent:
         try:
             logger.info("Starting stock screening")
 
-            # Default universe (simplified - in practice would use actual S&P 500 list)
-            if not universe:
-                universe = [
-                    "AAPL",
-                    "MSFT",
-                    "GOOGL",
-                    "AMZN",
-                    "TSLA",
-                    "META",
-                    "NVDA",
-                    "JPM",
-                    "V",
-                    "JNJ",
-                ]
+            # Determine the stock universe to screen
+            if use_sp500 or (isinstance(universe, str) and universe.lower() == "sp500"):
+                # Get full S&P 500 list
+                stock_universe = await self._get_sp500_symbols()
+                logger.info(f"Screening {len(stock_universe)} S&P 500 stocks")
+            elif isinstance(universe, str) and universe.lower() in [
+                "nasdaq100",
+                "dow30",
+            ]:
+                # Load specific universe from YAML
+                stock_universe = self._load_symbols_from_yaml(universe.lower())
+                logger.info(
+                    f"Screening {len(stock_universe)} {universe.upper()} stocks"
+                )
+            elif isinstance(universe, str) and universe.lower() == "major":
+                # Use major stocks only
+                stock_universe = self._get_fallback_symbols()
+                logger.info(f"Screening {len(stock_universe)} major stocks")
+            elif isinstance(universe, list) and universe:
+                # Use provided list
+                stock_universe = universe
+                logger.info(f"Screening {len(stock_universe)} provided stocks")
+            elif not universe:
+                # Default to major stocks for backward compatibility
+                stock_universe = self._get_fallback_symbols()
+                logger.info(
+                    f"Using default universe of {len(stock_universe)} major stocks"
+                )
+            else:
+                stock_universe = universe if isinstance(universe, list) else [universe]
 
             screened_stocks = []
+            processed_count = 0
+            max_to_process = min(
+                len(stock_universe),
+                self.config.max_stocks_per_analysis
+                if hasattr(self.config, "max_stocks_per_analysis")
+                else 50,
+            )
 
-            for symbol in universe[: self.config.max_stocks_per_analysis]:
+            logger.info(
+                f"Processing up to {max_to_process} stocks from universe of {len(stock_universe)}"
+            )
+
+            for symbol in stock_universe[:max_to_process]:
                 try:
                     stock_data = await self.get_stock_data(symbol)
+                    processed_count += 1
 
                     if self._meets_criteria(stock_data, criteria):
+                        score = self._calculate_screening_score(stock_data, criteria)
+
+                        # Extract only essential screening data instead of full stock_data
+                        info = stock_data.get("info", {})
                         screened_stocks.append(
                             {
                                 "symbol": symbol,
-                                "score": self._calculate_screening_score(
-                                    stock_data, criteria
+                                "score": score,
+                                "company_name": info.get("longName", symbol),
+                                "sector": info.get("sector", "Unknown"),
+                                "industry": info.get("industry", "Unknown"),
+                                "market_cap": info.get("marketCap", 0),
+                                "pe_ratio": info.get("trailingPE"),
+                                "forward_pe": info.get("forwardPE"),
+                                "peg_ratio": info.get("pegRatio"),
+                                "price_to_book": info.get("priceToBook"),
+                                "roe": info.get("returnOnEquity"),
+                                "roa": info.get("returnOnAssets"),
+                                "dividend_yield": info.get("dividendYield"),
+                                "current_price": info.get(
+                                    "currentPrice", info.get("regularMarketPrice")
                                 ),
-                                "data": stock_data,
+                                "52_week_high": info.get("fiftyTwoWeekHigh"),
+                                "52_week_low": info.get("fiftyTwoWeekLow"),
+                                "beta": info.get("beta"),
+                                "volume": info.get("averageVolume"),
+                                "recommendation": info.get("recommendationKey"),
+                                # Note: Full detailed data removed to prevent large output
+                                # Use analyze_stock() for detailed analysis of specific symbols
                             }
+                        )
+                        logger.debug(
+                            f"✓ {symbol} meets criteria with score {score:.2f}"
+                        )
+                    else:
+                        logger.debug(f"✗ {symbol} does not meet criteria")
+
+                    # Progress logging for large screenings
+                    if processed_count % 10 == 0:
+                        logger.info(
+                            f"Processed {processed_count}/{max_to_process} stocks, found {len(screened_stocks)} matches"
                         )
 
                 except Exception as e:
                     logger.warning(f"Failed to screen {symbol}: {e}")
                     continue
 
-            # Sort by score
+            # Sort by score (highest first)
             screened_stocks.sort(key=lambda x: x["score"], reverse=True)
 
+            # Limit results
+            final_results = screened_stocks[:max_results]
+
             logger.info(
-                f"Screening completed. Found {len(screened_stocks)} stocks meeting criteria"
+                f"Screening completed. Processed {processed_count} stocks, "
+                f"found {len(screened_stocks)} matches, returning top {len(final_results)}"
             )
-            return screened_stocks
+
+            return final_results
 
         except Exception as e:
             logger.error(f"Stock screening failed: {e}")

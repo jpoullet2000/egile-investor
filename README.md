@@ -95,6 +95,41 @@ async def main():
 asyncio.run(main())
 ```
 
+### Advanced Stock Screening with S&P 500 Support
+
+```python
+from egile_investor import AIInvestmentAgent
+
+async def main():
+    async with AIInvestmentAgent() as agent:
+        # Screen S&P 500 stocks for value opportunities
+        sp500_results = await agent.call_tool("screen_stocks", {
+            "criteria": {
+                "pe_ratio": {"max": 18},        # P/E ratio under 18
+                "dividend_yield": {"min": 0.02}, # Dividend yield above 2%
+                "roe": {"min": 0.12}            # ROE above 12%
+            },
+            "use_sp500": True,  # Screen all S&P 500 stocks
+            "max_results": 10
+        })
+        
+        # Alternative: use universe parameter
+        results = await agent.call_tool("screen_stocks", {
+            "criteria": {"pe_ratio": {"max": 20}},
+            "universe": "sp500",  # Options: "sp500", "major", or custom list
+            "max_results": 5
+        })
+        
+        # Screen only major stocks (default behavior)
+        major_results = await agent.call_tool("screen_stocks", {
+            "criteria": {"market_cap": {"min": 100000000000}},
+            "universe": "major",
+            "max_results": 10
+        })
+
+asyncio.run(main())
+```
+
 ### MCP Server Usage
 
 Start the MCP server:
@@ -118,7 +153,7 @@ The MCP server exposes the following investment tools:
 
 - `analyze_stock`: Comprehensive stock analysis with technical and fundamental insights
 - `get_market_data`: Retrieve real-time and historical market data
-- `screen_stocks`: Screen stocks based on various financial criteria
+- `screen_stocks`: Screen stocks based on various financial criteria (supports full S&P 500 screening)
 - `analyze_portfolio`: Analyze portfolio performance, risk, and optimization
 - `get_financial_ratios`: Calculate and analyze financial ratios
 - `technical_analysis`: Perform technical analysis with indicators and patterns

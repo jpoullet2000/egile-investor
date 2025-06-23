@@ -1,0 +1,261 @@
+# S&P 500 Stock Symbols
+# This file contains the list of S&P 500 companies and their stock symbols
+# Data source: Wikipedia S&P 500 list
+# Last updated: 2025-06-23
+
+sp500_symbols:
+  # Technology
+  - AAPL    # Apple Inc.
+  - MSFT    # Microsoft Corporation
+  - GOOGL   # Alphabet Inc. Class A
+  - GOOG    # Alphabet Inc. Class C
+  - AMZN    # Amazon.com Inc.
+  - TSLA    # Tesla Inc.
+  - META    # Meta Platforms Inc.
+  - NVDA    # NVIDIA Corporation
+  - NFLX    # Netflix Inc.
+  - ADBE    # Adobe Inc.
+  - CRM     # Salesforce Inc.
+  - ORCL    # Oracle Corporation
+  - IBM     # International Business Machines
+  - INTC    # Intel Corporation
+  - AMD     # Advanced Micro Devices
+  - CSCO    # Cisco Systems Inc.
+  - QCOM    # QUALCOMM Incorporated
+  - TXN     # Texas Instruments Incorporated
+  - AVGO    # Broadcom Inc.
+  - NOW     # ServiceNow Inc.
+  
+  # Healthcare
+  - JNJ     # Johnson & Johnson
+  - PFE     # Pfizer Inc.
+  - UNH     # UnitedHealth Group Incorporated
+  - ABBV    # AbbVie Inc.
+  - MRK     # Merck & Co. Inc.
+  - TMO     # Thermo Fisher Scientific Inc.
+  - ABT     # Abbott Laboratories
+  - LLY     # Eli Lilly and Company
+  - DHR     # Danaher Corporation
+  - BMY     # Bristol-Myers Squibb Company
+  - AMGN    # Amgen Inc.
+  - GILD    # Gilead Sciences Inc.
+  - CVS     # CVS Health Corporation
+  - MDLZ    # Mondelez International Inc.
+  - BDX     # Becton Dickinson and Company
+  
+  # Financial Services
+  - BRK.B   # Berkshire Hathaway Inc. Class B
+  - JPM     # JPMorgan Chase & Co.
+  - BAC     # Bank of America Corporation
+  - WFC     # Wells Fargo & Company
+  - GS      # The Goldman Sachs Group Inc.
+  - MS      # Morgan Stanley
+  - C       # Citigroup Inc.
+  - AXP     # American Express Company
+  - BLK     # BlackRock Inc.
+  - SPGI    # S&P Global Inc.
+  - CME     # CME Group Inc.
+  - ICE     # Intercontinental Exchange Inc.
+  - CB      # Chubb Limited
+  - PGR     # The Progressive Corporation
+  - TRV     # The Travelers Companies Inc.
+  - AIG     # American International Group Inc.
+  - MET     # MetLife Inc.
+  - PRU     # Prudential Financial Inc.
+  - ALL     # The Allstate Corporation
+  - AFL     # Aflac Incorporated
+  
+  # Consumer Discretionary
+  - AMZN    # Amazon.com Inc. (also in tech)
+  - TSLA    # Tesla Inc. (also in tech)
+  - HD      # The Home Depot Inc.
+  - MCD     # McDonald's Corporation
+  - NKE     # NIKE Inc.
+  - SBUX    # Starbucks Corporation
+  - TJX     # The TJX Companies Inc.
+  - LOW     # Lowe's Companies Inc.
+  - BKNG    # Booking Holdings Inc.
+  - TGT     # Target Corporation
+  - F       # Ford Motor Company
+  - GM      # General Motors Company
+  - CCL     # Carnival Corporation
+  - RCL     # Royal Caribbean Cruises Ltd.
+  - MAR     # Marriott International Inc.
+  - HLT     # Hilton Worldwide Holdings Inc.
+  
+  # Consumer Staples
+  - PG      # The Procter & Gamble Company
+  - KO      # The Coca-Cola Company
+  - PEP     # PepsiCo Inc.
+  - WMT     # Walmart Inc.
+  - COST    # Costco Wholesale Corporation
+  - CL      # Colgate-Palmolive Company
+  - KMB     # Kimberly-Clark Corporation
+  - GIS     # General Mills Inc.
+  - K       # Kellogg Company
+  - HSY     # The Hershey Company
+  - CPB     # Campbell Soup Company
+  - CAG     # Conagra Brands Inc.
+  - SJM     # The J. M. Smucker Company
+  - CHD     # Church & Dwight Co. Inc.
+  - CLX     # The Clorox Company
+  
+  # Energy
+  - XOM     # Exxon Mobil Corporation
+  - CVX     # Chevron Corporation
+  - COP     # ConocoPhillips
+  - EOG     # EOG Resources Inc.
+  - SLB     # Schlumberger Limited
+  - PXD     # Pioneer Natural Resources Company
+  - KMI     # Kinder Morgan Inc.
+  - OXY     # Occidental Petroleum Corporation
+  - VLO     # Valero Energy Corporation
+  - MPC     # Marathon Petroleum Corporation
+  - PSX     # Phillips 66
+  - HES     # Hess Corporation
+  - DVN     # Devon Energy Corporation
+  - BKR     # Baker Hughes Company
+  - HAL     # Halliburton Company
+  
+  # Industrials
+  - BA      # The Boeing Company
+  - CAT     # Caterpillar Inc.
+  - HON     # Honeywell International Inc.
+  - UPS     # United Parcel Service Inc.
+  - LMT     # Lockheed Martin Corporation
+  - RTX     # Raytheon Technologies Corporation
+  - GE      # General Electric Company
+  - MMM     # 3M Company
+  - FDX     # FedEx Corporation
+  - NOC     # Northrop Grumman Corporation
+  - GD      # General Dynamics Corporation
+  - LUV     # Southwest Airlines Co.
+  - DAL     # Delta Air Lines Inc.
+  - UAL     # United Airlines Holdings Inc.
+  - AAL     # American Airlines Group Inc.
+  - WM      # Waste Management Inc.
+  
+  # Materials
+  - LIN     # Linde plc
+  - APD     # Air Products and Chemicals Inc.
+  - SHW     # The Sherwin-Williams Company
+  - FCX     # Freeport-McMoRan Inc.
+  - NEM     # Newmont Corporation
+  - DOW     # Dow Inc.
+  - DD      # DuPont de Nemours Inc.
+  - PPG     # PPG Industries Inc.
+  - ECL     # Ecolab Inc.
+  - MLM     # Martin Marietta Materials Inc.
+  - VMC     # Vulcan Materials Company
+  - PKG     # Packaging Corporation of America
+  - IP      # International Paper Company
+  - CF      # CF Industries Holdings Inc.
+  - MOS     # The Mosaic Company
+  
+  # Real Estate
+  - AMT     # American Tower Corporation
+  - PLD     # Prologis Inc.
+  - CCI     # Crown Castle International Corp.
+  - EQIX    # Equinix Inc.
+  - PSA     # Public Storage
+  - WELL    # Welltower Inc.
+  - DLR     # Digital Realty Trust Inc.
+  - O       # Realty Income Corporation
+  - SBAC    # SBA Communications Corporation
+  - EXR     # Extended Stay America Inc.
+  - AVB     # AvalonBay Communities Inc.
+  - EQR     # Equity Residential
+  - UDR     # UDR Inc.
+  - ESS     # Essex Property Trust Inc.
+  - MAA     # Mid-America Apartment Communities
+  
+  # Utilities
+  - NEE     # NextEra Energy Inc.
+  - DUK     # Duke Energy Corporation
+  - SO      # The Southern Company
+  - D       # Dominion Energy Inc.
+  - AEP     # American Electric Power Company
+  - EXC     # Exelon Corporation
+  - XEL     # Xcel Energy Inc.
+  - SRE     # Sempra Energy
+  - WEC     # WEC Energy Group Inc.
+  - PEG     # Public Service Enterprise Group
+  - ED      # Consolidated Edison Inc.
+  - EIX     # Edison International
+  - ETR     # Entergy Corporation
+  - FE      # FirstEnergy Corp.
+  - AES     # The AES Corporation
+  
+  # Communication Services
+  - META    # Meta Platforms Inc. (also in tech)
+  - GOOGL   # Alphabet Inc. Class A (also in tech)
+  - GOOG    # Alphabet Inc. Class C (also in tech)
+  - NFLX    # Netflix Inc. (also in tech)
+  - DIS     # The Walt Disney Company
+  - CMCSA   # Comcast Corporation
+  - VZ      # Verizon Communications Inc.
+  - T       # AT&T Inc.
+  - CHTR    # Charter Communications Inc.
+  - TMUS    # T-Mobile US Inc.
+  - DISH    # DISH Network Corporation
+  - ATVI    # Activision Blizzard Inc.
+  - EA      # Electronic Arts Inc.
+  - TTWO    # Take-Two Interactive Software Inc.
+  - MTCH    # Match Group Inc.
+
+# Alternative stock universes for different screening needs
+nasdaq100_symbols:
+  # Top NASDAQ 100 companies (subset)
+  - AAPL
+  - MSFT
+  - AMZN
+  - GOOGL
+  - GOOG
+  - META
+  - TSLA
+  - NVDA
+  - NFLX
+  - ADBE
+  - PYPL
+  - INTC
+  - CSCO
+  - CMCSA
+  - PEP
+  - COST
+  - TMUS
+  - QCOM
+  - TXN
+  - CHTR
+
+dow30_symbols:
+  # Dow Jones Industrial Average 30 companies
+  - AAPL
+  - MSFT
+  - UNH
+  - GS
+  - HD
+  - MCD
+  - CAT
+  - AMGN
+  - V
+  - CRM
+  - BA
+  - TRV
+  - AXP
+  - JPM
+  - JNJ
+  - PG
+  - CVX
+  - MRK
+  - WMT
+  - DIS
+  - MMM
+  - NKE
+  - KO
+  - DOW
+  - CSCO
+  - HON
+  - IBM
+  - WBA
+  - VZ
+  - INTC

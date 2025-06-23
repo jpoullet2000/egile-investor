@@ -93,24 +93,39 @@ async def screen_stocks(
     criteria: Dict[str, Any],
     universe: Optional[Union[List[str], str]] = None,
     max_results: int = 10,
+    use_sp500: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Screen stocks based on various financial criteria.
 
     Args:
         criteria: Screening criteria (e.g., {"pe_ratio": {"max": 25}, "roe": {"min": 0.15}})
-        universe: List of stock symbols to screen (defaults to major indices)
+        universe: Stock universe to screen:
+                 - List of symbols: ["AAPL", "MSFT", "GOOGL"]
+                 - Predefined universe: "sp500", "nasdaq100", "dow30", "major"
+                 - None: uses default major stocks
         max_results: Maximum number of results to return
+        use_sp500: If True, screen all S&P 500 stocks (500+ stocks) regardless of universe
 
     Returns:
         List of stocks meeting the criteria with scores
+
+    Examples:
+        - Screen major stocks: {"pe_ratio": {"max": 25}}
+        - Screen S&P 500: {"pe_ratio": {"max": 25}}, universe="sp500"
+        - Screen NASDAQ 100: {"pe_ratio": {"max": 25}}, universe="nasdaq100"
+        - Screen Dow 30: {"pe_ratio": {"max": 25}}, universe="dow30"
+        - Screen S&P 500 (alternative): {"pe_ratio": {"max": 25}}, use_sp500=True
+        - Screen custom list: {"pe_ratio": {"max": 25}}, universe=["AAPL", "MSFT", "GOOGL"]
     """
     agent = await get_investment_agent()
     screened = await agent.screen_stocks(
         criteria=criteria,
         universe=universe,
+        max_results=max_results,
+        use_sp500=use_sp500,
     )
-    return screened[:max_results]
+    return screened
 
 
 @mcp.tool()
