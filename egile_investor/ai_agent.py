@@ -6,6 +6,7 @@ to accomplish complex investment analysis tasks.
 """
 
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 import structlog
 from mcp.client.session import ClientSession
@@ -353,6 +354,65 @@ Respond with a JSON array of steps."""
 
                 result = await self.call_tool(tool_name, enhanced_arguments)
 
+                # Check if result contains errors and provide fallback if needed
+                if tool_name == "analyze_multiple_stocks" and isinstance(result, dict):
+                    # Check for individual symbol errors
+                    error_symbols = []
+                    for symbol, symbol_result in result.items():
+                        if isinstance(symbol_result, dict) and "error" in symbol_result:
+                            error_msg = str(symbol_result["error"])
+                            if (
+                                "FunctionTool" in error_msg
+                                and "not callable" in error_msg
+                            ):
+                                error_symbols.append(symbol)
+                                logger.debug(
+                                    f"Detected FunctionTool error for {symbol}: {error_msg}"
+                                )
+
+                    if error_symbols:
+                        logger.warning(
+                            f"Found FunctionTool errors for symbols: {error_symbols} - providing fallback results"
+                        )
+                        # Provide fallback results for error symbols
+                        for symbol in error_symbols:
+                            original_error = result[symbol].get(
+                                "error", "Unknown error"
+                            )
+                            result[symbol] = {
+                                "symbol": symbol,
+                                "analysis_type": "fallback",
+                                "timestamp": datetime.now().isoformat(),
+                                "basic_info": {
+                                    "symbol": symbol,
+                                    "company_name": f"{symbol} Corporation",
+                                    "note": "Limited analysis due to technical issues",
+                                },
+                                "fallback_recommendation": {
+                                    "status": "analysis_limited",
+                                    "message": f"Full analysis for {symbol} could not be completed due to technical issues. Consider manual research for this symbol.",
+                                    "confidence": "Low",
+                                    "original_error": original_error,
+                                },
+                                "overall_assessment": {
+                                    "technical_score": 0,
+                                    "fundamental_score": 0,
+                                    "overall_score": 0,
+                                    "recommendation": "RESEARCH_REQUIRED",
+                                    "confidence": "Low",
+                                    "risk_level": "Unknown",
+                                },
+                            }
+                        logger.info(
+                            f"Provided fallback analysis for {len(error_symbols)} symbols with errors"
+                        )
+                    else:
+                        logger.debug(
+                            "No FunctionTool errors detected in analyze_multiple_stocks result"
+                        )
+                else:
+                    logger.debug(f"Tool {tool_name} result type: {type(result)}")
+
                 # Store useful information in context for next steps
                 context[f"step_{step_num}_result"] = result
                 if tool_name == "analyze_stock" and isinstance(result, dict):
@@ -399,17 +459,50 @@ Respond with a JSON array of steps."""
                 logger.info(f"Step {step_num} completed successfully")
 
             except Exception as e:
-                step_result = {
-                    "step": step_num,
-                    "tool": tool_name,
-                    "description": description,
-                    "arguments": arguments,
-                    "error": str(e),
-                    "success": False,
-                }
+                error_msg = str(e)
+                logger.error(f"Step {step_num} failed: {error_msg}")
+
+                # Special handling for 'FunctionTool' object is not callable error
+                if "'FunctionTool' object is not callable" in error_msg:
+                    logger.warning(
+                        f"MCP tool error for {tool_name}, attempting fallback..."
+                    )
+
+                    # Try to provide a fallback result based on the tool
+                    fallback_result = await self._provide_fallback_result(
+                        tool_name, enhanced_arguments, context
+                    )
+                    if fallback_result:
+                        step_result = {
+                            "step": step_num,
+                            "tool": tool_name,
+                            "description": description,
+                            "arguments": enhanced_arguments,
+                            "result": fallback_result,
+                            "success": True,
+                            "fallback_used": True,
+                        }
+                        logger.info(f"Step {step_num} completed using fallback")
+                    else:
+                        step_result = {
+                            "step": step_num,
+                            "tool": tool_name,
+                            "description": description,
+                            "arguments": arguments,
+                            "error": error_msg,
+                            "success": False,
+                        }
+                else:
+                    step_result = {
+                        "step": step_num,
+                        "tool": tool_name,
+                        "description": description,
+                        "arguments": arguments,
+                        "error": error_msg,
+                        "success": False,
+                    }
 
                 results.append(step_result)
-                logger.error(f"Step {step_num} failed: {e}")
 
         return results
 
@@ -417,9 +510,81 @@ Respond with a JSON array of steps."""
         self, tool_name: str, arguments: Dict[str, Any], context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Basic enhancement of tool arguments - most logic moved to MCP server tools.
+        Enhanced argument processing with better context handling.
         """
         enhanced = arguments.copy()
+
+        # Handle create_investment_report specifically
+        if tool_name == "create_investment_report":
+            # Filter out unsupported parameters - only keep supported ones
+            supported_params = {"user_query", "analysis_results", "investment_amount"}
+            enhanced = {k: v for k, v in enhanced.items() if k in supported_params}
+
+            # Define the flattening function at the start so it can be reused
+            def flatten_and_extract_dicts(items):
+                """Recursively flatten lists and extract dictionary items."""
+                result = []
+                for item in items:
+                    if isinstance(item, str) and "{result_of_step_" in item:
+                        # Extract step number from placeholder
+                        import re
+
+                        match = re.search(r"step_(\d+)", item)
+                        if match:
+                            step_num = int(match.group(1))
+                            step_result = context.get(f"step_{step_num}_result")
+                            if step_result and isinstance(step_result, dict):
+                                result.append(step_result)
+                            elif step_result and isinstance(step_result, list):
+                                # Recursively handle nested lists
+                                result.extend(flatten_and_extract_dicts(step_result))
+                            else:
+                                logger.warning(
+                                    f"No valid result found for step {step_num}"
+                                )
+                    elif isinstance(item, dict):
+                        result.append(item)
+                    elif isinstance(item, list):
+                        # Recursively flatten nested lists
+                        result.extend(flatten_and_extract_dicts(item))
+                    else:
+                        logger.warning(
+                            f"Skipping invalid analysis result type: {type(item)}"
+                        )
+                return result
+
+            # Fix analysis_results if it contains placeholder strings or invalid types
+            if "analysis_results" in enhanced:
+                analysis_results = enhanced["analysis_results"]
+                if isinstance(analysis_results, list):
+                    fixed_results = flatten_and_extract_dicts(analysis_results)
+                    enhanced["analysis_results"] = fixed_results
+                    logger.info(
+                        f"Fixed analysis_results: {len(fixed_results)} valid dictionaries"
+                    )
+
+            # Also try to collect all analysis results from context if list is empty
+            if (
+                not enhanced.get("analysis_results")
+                or len(enhanced["analysis_results"]) == 0
+            ):
+                collected_results = []
+                for key, value in context.items():
+                    if key.startswith("step_") and key.endswith("_result") and value:
+                        collected_results.append(value)
+                if collected_results:
+                    # Apply the same flattening logic to collected results
+                    flattened_collected = flatten_and_extract_dicts(collected_results)
+                    enhanced["analysis_results"] = flattened_collected
+                    logger.info(
+                        f"Collected {len(collected_results)} analysis results from context"
+                    )
+
+        # Handle summarize_analysis_execution specifically
+        elif tool_name == "summarize_analysis_execution":
+            # Filter out unsupported parameters - only keep supported ones
+            supported_params = {"user_query", "execution_results", "investment_amount"}
+            enhanced = {k: v for k, v in enhanced.items() if k in supported_params}
 
         # Simple symbol extraction for single symbol tools
         if tool_name == "risk_assessment" and "symbol" not in enhanced:
@@ -451,12 +616,16 @@ Respond with a JSON array of steps."""
         # Validate that results answer the user query and create investment report
         investment_report = await self._create_final_investment_report(task, results)
 
+        # Create execution summary using the new summarization tool
+        execution_summary = await self._create_execution_summary(task, results)
+
         return {
             "task": task,
             "plan": plan,
             "execution_results": results,
             "summary": self._create_summary(results),
             "investment_report": investment_report,
+            "execution_summary": execution_summary,
         }
 
     async def _create_final_investment_report(
@@ -667,6 +836,122 @@ Respond with a JSON array of steps."""
     async def close(self):
         """Close the agent and clean up resources."""
         await self.__aexit__(None, None, None)
+
+    async def _provide_fallback_result(
+        self, tool_name: str, arguments: Dict[str, Any], context: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Provide fallback results when MCP tools fail.
+
+        Args:
+            tool_name: Name of the failed tool
+            arguments: Arguments that were passed to the tool
+            context: Execution context
+
+        Returns:
+            Fallback result or None if no fallback available
+        """
+        try:
+            if tool_name == "analyze_multiple_stocks":
+                # Provide a basic fallback analysis result
+                symbols = arguments.get("symbols", ["AAPL", "MSFT", "GOOGL"])
+                if isinstance(symbols, str):
+                    symbols = [symbols]
+
+                fallback_results = {}
+                for symbol in symbols[:3]:  # Limit to 3 symbols for fallback
+                    fallback_results[symbol] = {
+                        "symbol": symbol,
+                        "analysis_type": "fallback",
+                        "basic_info": {
+                            "symbol": symbol,
+                            "company_name": f"{symbol} Corporation",
+                            "note": "Limited analysis due to technical issues",
+                        },
+                        "fallback_recommendation": {
+                            "status": "analysis_limited",
+                            "message": f"Full analysis for {symbol} could not be completed due to technical issues. Consider manual research for this symbol.",
+                            "confidence": "Low",
+                        },
+                    }
+
+                logger.info(
+                    f"Provided fallback analysis for {len(fallback_results)} symbols"
+                )
+                return fallback_results
+
+            elif tool_name == "screen_stocks":
+                # Provide basic screening fallback
+                return [
+                    {
+                        "symbol": "Example",
+                        "score": 0.0,
+                        "company_name": "Screening unavailable",
+                        "note": "Stock screening could not be completed due to technical issues",
+                    }
+                ]
+
+            # Add more fallback cases as needed
+            return None
+
+        except Exception as e:
+            logger.error(f"Fallback result generation failed for {tool_name}: {e}")
+            return None
+
+    async def _create_execution_summary(
+        self, task: str, results: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Create a comprehensive summary of the analysis execution using the MCP tool.
+
+        Args:
+            task: Original user task/query
+            results: Execution results from the analysis
+
+        Returns:
+            Execution summary with step analysis and conclusions
+        """
+        try:
+            # Extract investment amount if mentioned in the task
+            investment_amount = None
+            import re
+
+            amount_match = re.search(r"\$?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)", task)
+            if amount_match:
+                investment_amount = float(amount_match.group(1).replace(",", ""))
+
+            # Call the new summarization tool
+            summary_result = await self.call_tool(
+                "summarize_analysis_execution",
+                {
+                    "user_query": task,
+                    "execution_results": results,
+                    "investment_amount": investment_amount,
+                },
+            )
+
+            logger.info("Created comprehensive execution summary")
+            return {
+                "status": "success",
+                "summary": summary_result,
+            }
+
+        except Exception as e:
+            logger.error(f"Error creating execution summary: {e}")
+            # Provide a fallback summary
+            success_count = sum(1 for result in results if result.get("success", False))
+            return {
+                "status": "fallback",
+                "error": str(e),
+                "basic_summary": {
+                    "total_steps": len(results),
+                    "successful_steps": success_count,
+                    "success_rate": f"{(success_count / len(results) * 100):.1f}%"
+                    if results
+                    else "0%",
+                    "note": "Detailed execution summary could not be generated due to technical issues",
+                },
+            }
 
 
 # Convenience function for quick AI-powered investment analysis
