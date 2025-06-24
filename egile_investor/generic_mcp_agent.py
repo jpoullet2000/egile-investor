@@ -58,7 +58,10 @@ class GenericMCPAgent:
 
             server_params = StdioServerParameters(command=command, args=args, env=None)
             self._client_context = stdio_client(server_params)
-            (self._read_stream, self._write_stream) = await self._client_context.__aenter__()
+            (
+                self._read_stream,
+                self._write_stream,
+            ) = await self._client_context.__aenter__()
 
             self.session = ClientSession(self._read_stream, self._write_stream)
             await self.session.__aenter__()
@@ -67,7 +70,9 @@ class GenericMCPAgent:
             tools_response = await self.session.list_tools()
             self.available_tools = {tool.name: tool for tool in tools_response.tools}
 
-            logger.info(f"Connected to MCP server with {len(self.available_tools)} tools")
+            logger.info(
+                f"Connected to MCP server with {len(self.available_tools)} tools"
+            )
             for tool_name in self.available_tools.keys():
                 logger.debug(f"Available tool: {tool_name}")
 
@@ -112,28 +117,32 @@ class GenericMCPAgent:
     def _format_tools_for_llm(self) -> str:
         """Format available tools for LLM understanding."""
         tool_descriptions = []
-        
+
         for name, tool in self.available_tools.items():
             description = tool.description or "No description available"
-            
+
             # Format input schema
             params_info = ""
             if hasattr(tool, "inputSchema") and tool.inputSchema:
                 properties = tool.inputSchema.get("properties", {})
                 required = tool.inputSchema.get("required", [])
-                
+
                 if properties:
                     param_lines = []
                     for param_name, param_info in properties.items():
                         param_type = param_info.get("type", "any")
                         param_desc = param_info.get("description", "")
-                        is_required = "(required)" if param_name in required else "(optional)"
-                        param_lines.append(f"    - {param_name} ({param_type}) {is_required}: {param_desc}")
-                    
+                        is_required = (
+                            "(required)" if param_name in required else "(optional)"
+                        )
+                        param_lines.append(
+                            f"    - {param_name} ({param_type}) {is_required}: {param_desc}"
+                        )
+
                     params_info = "\n  Parameters:\n" + "\n".join(param_lines)
-            
+
             tool_descriptions.append(f"- **{name}**: {description}{params_info}")
-        
+
         return "\n".join(tool_descriptions)
 
     async def _create_execution_plan(self, user_request: str) -> List[Dict[str, Any]]:
@@ -141,7 +150,7 @@ class GenericMCPAgent:
         Use LLM to create a generic execution plan based on available tools.
         """
         tools_info = self._format_tools_for_llm()
-        
+
         system_prompt = f"""You are an intelligent AI assistant that can work with any MCP (Model Context Protocol) server. Your job is to create a step-by-step execution plan to fulfill user requests using the available MCP tools.
 
 Available MCP Tools:
@@ -199,14 +208,14 @@ Respond with a JSON array of execution steps."""
             )
 
             plan_text = response.choices[0].message.content.strip()
-            
+
             # Extract JSON from response (handle cases where LLM adds extra text)
-            json_match = re.search(r'\[.*\]', plan_text, re.DOTALL)
+            json_match = re.search(r"\[.*\]", plan_text, re.DOTALL)
             if json_match:
                 plan_text = json_match.group(0)
-            
+
             plan = json.loads(plan_text)
-            
+
             logger.info(f"Created execution plan with {len(plan)} steps")
             return plan
 
@@ -218,7 +227,7 @@ Respond with a JSON array of execution steps."""
                     "step": 1,
                     "tool": list(self.available_tools.keys())[0],
                     "description": "Execute available tool with user request",
-                    "arguments": {"query": user_request}
+                    "arguments": {"query": user_request},
                 }
             ]
 
@@ -229,7 +238,7 @@ Respond with a JSON array of execution steps."""
         Resolve references to previous step results in arguments with type validation.
         """
         resolved = {}
-        
+
         for key, value in arguments.items():
             if isinstance(value, str) and "{result_from_step_" in value:
                 # Extract step number
@@ -239,7 +248,10 @@ Respond with a JSON array of execution steps."""
                     if step_num in step_results:
                         result = step_results[step_num]
                         # Handle MCP server validation - ensure we pass the right type
-                        if isinstance(result, list) and key in ["screening_results", "symbols"]:
+                        if isinstance(result, list) and key in [
+                            "screening_results",
+                            "symbols",
+                        ]:
                             # For tools that expect strings but get lists, try to serialize
                             try:
                                 resolved[key] = json.dumps(result)
@@ -248,7 +260,9 @@ Respond with a JSON array of execution steps."""
                         else:
                             resolved[key] = result
                     else:
-                        logger.warning(f"Referenced step {step_num} not found in results")
+                        logger.warning(
+                            f"Referenced step {step_num} not found in results"
+                        )
                         resolved[key] = None
                 else:
                     resolved[key] = value
@@ -272,7 +286,7 @@ Respond with a JSON array of execution steps."""
                 resolved[key] = resolved_list
             else:
                 resolved[key] = value
-        
+
         return resolved
 
     async def _execute_plan(self, plan: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -281,83 +295,89 @@ Respond with a JSON array of execution steps."""
         """
         step_results = {}
         execution_log = []
-        
+
         for step in plan:
             step_num = step["step"]
             tool_name = step["tool"]
             description = step["description"]
             arguments = step.get("arguments", {})
-            
+
             logger.info(f"Executing step {step_num}: {description}")
-            
+
             try:
                 # Resolve any references to previous step results
                 resolved_args = self._resolve_step_references(arguments, step_results)
-                
+
                 # Validate that the tool exists
                 if tool_name not in self.available_tools:
                     raise ValueError(f"Tool '{tool_name}' not available")
-                
+
                 # Call the tool
                 result = await self.call_tool(tool_name, resolved_args)
-                
+
                 # Store the result
                 step_results[step_num] = result
-                
-                execution_log.append({
-                    "step": step_num,
-                    "tool": tool_name,
-                    "description": description,
-                    "success": True,
-                    "result_preview": str(result)[:200] + "..." if len(str(result)) > 200 else str(result)
-                })
-                
+
+                execution_log.append(
+                    {
+                        "step": step_num,
+                        "tool": tool_name,
+                        "description": description,
+                        "success": True,
+                        "result_preview": str(result)[:200] + "..."
+                        if len(str(result)) > 200
+                        else str(result),
+                    }
+                )
+
                 logger.info(f"Step {step_num} completed successfully")
-                
+
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"Step {step_num} failed: {error_msg}")
-                
-                execution_log.append({
-                    "step": step_num,
-                    "tool": tool_name,
-                    "description": description,
-                    "success": False,
-                    "error": error_msg
-                })
-                
+
+                execution_log.append(
+                    {
+                        "step": step_num,
+                        "tool": tool_name,
+                        "description": description,
+                        "success": False,
+                        "error": error_msg,
+                    }
+                )
+
                 # Continue execution even if one step fails
                 step_results[step_num] = {"error": error_msg}
-        
+
         return {
             "step_results": step_results,
             "execution_log": execution_log,
             "success_count": len([log for log in execution_log if log["success"]]),
-            "total_steps": len(execution_log)
+            "total_steps": len(execution_log),
         }
 
     async def execute_request(self, user_request: str) -> Dict[str, Any]:
         """
         Main method to execute a user request using available MCP tools.
-        
+
         Args:
             user_request: The user's request in natural language
-            
+
         Returns:
             Complete execution results with plan, steps, and final results
         """
         if not self.session:
             await self.connect()
-        
+
         try:
             # Create execution plan
             logger.info("Creating execution plan...")
             plan = await self._create_execution_plan(user_request)
-            
+
             # Execute the plan
             logger.info("Executing plan...")
             execution = await self._execute_plan(plan)
-            
+
             # Compile final response
             response = {
                 "user_request": user_request,
@@ -365,20 +385,18 @@ Respond with a JSON array of execution steps."""
                 "execution_results": execution,
                 "final_results": execution["step_results"],
                 "success_rate": f"{execution['success_count']}/{execution['total_steps']}",
-                "status": "completed"
+                "status": "completed",
             }
-            
-            logger.info(f"Request execution completed with {execution['success_count']}/{execution['total_steps']} successful steps")
-            
+
+            logger.info(
+                f"Request execution completed with {execution['success_count']}/{execution['total_steps']} successful steps"
+            )
+
             return response
-            
+
         except Exception as e:
             logger.error(f"Request execution failed: {e}")
-            return {
-                "user_request": user_request,
-                "error": str(e),
-                "status": "failed"
-            }
+            return {"user_request": user_request, "error": str(e), "status": "failed"}
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -398,18 +416,18 @@ Respond with a JSON array of execution steps."""
 
 # Convenience function for generic MCP agent usage
 async def generic_mcp_request(
-    user_request: str, 
+    user_request: str,
     server_command: Optional[str] = None,
-    config: Optional[InvestmentAgentConfig] = None
+    config: Optional[InvestmentAgentConfig] = None,
 ) -> Dict[str, Any]:
     """
     Execute a generic request against any MCP server.
-    
+
     Args:
         user_request: The user's request in natural language
         server_command: Command to start the MCP server (optional)
         config: Configuration for the OpenAI client (optional)
-        
+
     Returns:
         Complete execution results
     """
