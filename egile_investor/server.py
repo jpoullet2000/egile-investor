@@ -942,16 +942,24 @@ async def create_investment_report(
 
             # Handle analyze_multiple_stocks format: {SYMBOL: analysis_data, SYMBOL2: analysis_data, ...}
             # Check if this looks like a multi-stock analysis result
-            if all(isinstance(v, dict) and v.get("symbol") for k, v in result.items() if isinstance(k, str) and k.isupper() and len(k) <= 5):
+            if all(
+                isinstance(v, dict) and v.get("symbol")
+                for k, v in result.items()
+                if isinstance(k, str) and k.isupper() and len(k) <= 5
+            ):
                 # This is likely a multi-stock analysis result
                 for symbol, analysis_data in result.items():
                     if isinstance(analysis_data, dict) and analysis_data.get("symbol"):
                         # Extract recommendation from overall_assessment or create default
                         overall_assessment = analysis_data.get("overall_assessment", {})
-                        recommendation = overall_assessment.get("recommendation", "HOLD")
-                        score = overall_assessment.get("overall_score", 50) / 100.0  # Convert to 0-1 scale
+                        recommendation = overall_assessment.get(
+                            "recommendation", "HOLD"
+                        )
+                        score = (
+                            overall_assessment.get("overall_score", 50) / 100.0
+                        )  # Convert to 0-1 scale
                         confidence = overall_assessment.get("confidence", "Medium")
-                        
+
                         stocks_found.append(
                             {
                                 "symbol": symbol,
@@ -961,15 +969,19 @@ async def create_investment_report(
                                 "analysis_data": analysis_data,  # Keep full analysis for reference
                             }
                         )
-                        
+
                         # Extract risk information from this stock's analysis
                         if "risk_assessment" in analysis_data:
                             risk_data = analysis_data["risk_assessment"]
                             if "risk_level" in risk_data:
-                                risks_identified.append(f"{symbol} Risk Level: {risk_data['risk_level']}")
+                                risks_identified.append(
+                                    f"{symbol} Risk Level: {risk_data['risk_level']}"
+                                )
                             if "volatility" in risk_data:
-                                risks_identified.append(f"{symbol} Volatility: {risk_data['volatility']}")
-                
+                                risks_identified.append(
+                                    f"{symbol} Volatility: {risk_data['volatility']}"
+                                )
+
                 # Once we've processed multi-stock format, continue to next result
                 continue
 

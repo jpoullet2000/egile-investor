@@ -248,16 +248,14 @@ Respond with a JSON array of execution steps."""
                     if step_num in step_results:
                         result = step_results[step_num]
                         # Handle MCP server validation - ensure we pass the right type
-                        if isinstance(result, list) and key in [
-                            "screening_results",
-                            "symbols",
-                        ]:
-                            # For tools that expect strings but get lists, try to serialize
+                        if isinstance(result, list) and key == "screening_results":
+                            # Only screening_results needs JSON serialization
                             try:
                                 resolved[key] = json.dumps(result)
                             except (TypeError, ValueError):
                                 resolved[key] = str(result)
                         else:
+                            # For symbols and other parameters, pass the actual data type
                             resolved[key] = result
                     else:
                         logger.warning(
