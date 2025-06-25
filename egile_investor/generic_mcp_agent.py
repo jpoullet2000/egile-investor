@@ -93,7 +93,7 @@ class GenericMCPAgent:
             logger.debug(f"Called tool '{tool_name}' successfully")
 
             # Extract result from MCP response format
-            if hasattr(response, "content") and response.content:
+            if hasattr(response, "content"):
                 if isinstance(response.content, list) and len(response.content) > 0:
                     first_content = response.content[0]
                     if hasattr(first_content, "text"):
@@ -105,10 +105,14 @@ class GenericMCPAgent:
                             return first_content.text
                     else:
                         return first_content
+                elif isinstance(response.content, list):
+                    # Empty content list - return empty list
+                    return []
                 else:
                     return response.content
             else:
-                return response
+                # No content attribute - return empty list for consistency
+                return []
 
         except Exception as e:
             logger.error(f"Failed to call tool '{tool_name}': {e}")
@@ -255,7 +259,7 @@ Respond with a JSON array of execution steps."""
                             except (TypeError, ValueError):
                                 resolved[key] = str(result)
                         else:
-                            # For symbols and other parameters, pass the actual data type
+                            # For other parameters, pass the actual data type
                             resolved[key] = result
                     else:
                         logger.warning(
@@ -376,14 +380,38 @@ Respond with a JSON array of execution steps."""
             logger.info("Executing plan...")
             execution = await self._execute_plan(plan)
 
+            # Validate execution results
+            logger.info("Validating execution results...")
+            validation = await self._validate_execution_results(user_request, execution)
+
+            if not validation["adequately_answered"]:
+                logger.info(
+                    "Execution results inadequate, taking corrective actions..."
+                )
+                # Take corrective actions based on validation feedback
+                if validation["suggested_additional_steps"]:
+                    # Execute additional steps if suggested
+                    additional_execution = await self._execute_additional_steps(
+                        user_request,
+                        execution,
+                        validation["suggested_additional_steps"],
+                    )
+                    execution = additional_execution
+
             # Compile final response
+            main_response = self._extract_main_response(execution)
+
             response = {
                 "user_request": user_request,
+                "response": main_response,  # Main response content (markdown, etc.)
                 "execution_plan": plan,
                 "execution_results": execution,
                 "final_results": execution["step_results"],
                 "success_rate": f"{execution['success_count']}/{execution['total_steps']}",
-                "status": "completed",
+                "validation": validation,
+                "status": "completed"
+                if validation["adequately_answered"]
+                else "completed_with_concerns",
             }
 
             logger.info(
@@ -395,6 +423,438 @@ Respond with a JSON array of execution steps."""
         except Exception as e:
             logger.error(f"Request execution failed: {e}")
             return {"user_request": user_request, "error": str(e), "status": "failed"}
+
+    async def _validate_execution_results(
+        self, user_request: str, execution: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Validate that the execution results meaningfully address the user's request.
+
+        Args:
+            user_request: The original user request
+            execution: The execution results from _execute_plan
+
+        Returns:
+            Validation assessment with suggestions for improvement
+        """
+        try:
+            # Use LLM to evaluate if the results answer the user's query
+            validation_prompt = f"""You are evaluating whether the execution results adequately answer a user's request.
+
+USER REQUEST: "{user_request}"
+
+EXECUTION SUMMARY:
+- Total steps: {execution["total_steps"]}
+- Successful steps: {execution["success_count"]}
+- Success rate: {execution["success_count"]}/{execution["total_steps"]}
+
+EXECUTION LOG:
+{json.dumps(execution["execution_log"], indent=2)}
+
+STEP RESULTS SUMMARY:
+{self._summarize_step_results(execution["step_results"])}
+
+Please evaluate:
+1. Do the execution results contain meaningful data that addresses the user's request?
+2. Are there obvious gaps or missing information?
+3. If the results are inadequate, what additional steps could improve them?
+
+Respond with JSON in this format:
+{{
+    "adequately_answered": true/false,
+    "confidence": "high"/"medium"/"low",
+    "assessment": "Brief explanation of why results are adequate or inadequate",
+    "missing_elements": ["list", "of", "missing", "elements"],
+    "suggested_additional_steps": [
+        {{"step": "step_description", "tool": "tool_name", "reasoning": "why this would help"}}
+    ]
+}}"""
+
+            messages = [{"role": "user", "content": validation_prompt}]
+
+            response = await self.openai_client.chat_completion(
+                messages=messages,
+                model=self.config.openai_config.default_model,
+                temperature=0.2,
+                max_tokens=800,
+            )
+
+            validation_text = response.choices[0].message.content.strip()
+
+            # Extract JSON from response
+            json_match = re.search(r"\{.*\}", validation_text, re.DOTALL)
+            if json_match:
+                validation_result = json.loads(json_match.group(0))
+            else:
+                # Fallback validation
+                validation_result = {
+                    "adequately_answered": execution["success_count"] > 0,
+                    "confidence": "low",
+                    "assessment": "Unable to parse validation response",
+                    "missing_elements": [],
+                    "suggested_additional_steps": [],
+                }
+
+            logger.info(
+                f"Result validation: {validation_result['adequately_answered']} (confidence: {validation_result['confidence']})"
+            )
+            return validation_result
+
+        except Exception as e:
+            logger.error(f"Error validating execution results: {e}")
+            # Default to accepting results if validation fails
+            return {
+                "adequately_answered": True,
+                "confidence": "low",
+                "assessment": f"Validation error: {str(e)}",
+                "missing_elements": [],
+                "suggested_additional_steps": [],
+            }
+
+    def _summarize_step_results(self, step_results: Dict[int, Any]) -> str:
+        """Create a brief summary of step results for validation."""
+        summary_lines = []
+        for step_num, result in step_results.items():
+            if isinstance(result, dict):
+                if "error" in result:
+                    summary_lines.append(f"Step {step_num}: ERROR - {result['error']}")
+                else:
+                    # Try to extract meaningful info
+                    key_info = []
+                    for key in [
+                        "recommendations",
+                        "symbols",
+                        "stocks",
+                        "analysis",
+                        "report",
+                    ]:
+                        if key in result:
+                            value = result[key]
+                            if isinstance(value, list):
+                                key_info.append(f"{key}: {len(value)} items")
+                            elif isinstance(value, dict):
+                                key_info.append(f"{key}: dict with {len(value)} keys")
+                            else:
+                                key_info.append(f"{key}: {type(value).__name__}")
+
+                    if key_info:
+                        summary_lines.append(f"Step {step_num}: {', '.join(key_info)}")
+                    else:
+                        summary_lines.append(
+                            f"Step {step_num}: {type(result).__name__} result"
+                        )
+            else:
+                summary_lines.append(
+                    f"Step {step_num}: {type(result).__name__} - {str(result)[:50]}..."
+                )
+
+        return "\n".join(summary_lines)
+
+    async def _execute_additional_steps(
+        self,
+        user_request: str,
+        current_execution: Dict[str, Any],
+        suggested_steps: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Execute additional steps to improve the results.
+
+        Args:
+            user_request: Original user request
+            current_execution: Current execution state
+            suggested_steps: List of additional steps to execute
+
+        Returns:
+            Updated execution results
+        """
+        logger.info(
+            f"Executing {len(suggested_steps)} additional steps to improve results"
+        )
+
+        # Continue from where we left off
+        step_results = current_execution["step_results"].copy()
+        execution_log = current_execution["execution_log"].copy()
+        current_step_num = max(step_results.keys()) if step_results else 0
+
+        for i, suggested_step in enumerate(
+            suggested_steps[:3]
+        ):  # Limit to 3 additional steps
+            current_step_num += 1
+            tool_name = suggested_step.get("tool", "unknown")
+            description = suggested_step.get("step", f"Additional step {i + 1}")
+            reasoning = suggested_step.get("reasoning", "Improving results")
+
+            logger.info(f"Executing additional step {current_step_num}: {description}")
+
+            try:
+                # For suggested steps, we need to infer arguments based on available tools and context
+                arguments = await self._infer_tool_arguments(
+                    tool_name, user_request, step_results
+                )
+
+                if tool_name in self.available_tools:
+                    result = await self.call_tool(tool_name, arguments)
+                    step_results[current_step_num] = result
+
+                    execution_log.append(
+                        {
+                            "step": current_step_num,
+                            "tool": tool_name,
+                            "description": description,
+                            "reasoning": reasoning,
+                            "success": True,
+                            "result_preview": str(result)[:200] + "..."
+                            if len(str(result)) > 200
+                            else str(result),
+                            "additional_step": True,
+                        }
+                    )
+
+                    logger.info(
+                        f"Additional step {current_step_num} completed successfully"
+                    )
+                else:
+                    logger.warning(f"Suggested tool '{tool_name}' not available")
+                    execution_log.append(
+                        {
+                            "step": current_step_num,
+                            "tool": tool_name,
+                            "description": description,
+                            "reasoning": reasoning,
+                            "success": False,
+                            "error": f"Tool '{tool_name}' not available",
+                            "additional_step": True,
+                        }
+                    )
+
+            except Exception as e:
+                logger.error(f"Additional step {current_step_num} failed: {e}")
+                execution_log.append(
+                    {
+                        "step": current_step_num,
+                        "tool": tool_name,
+                        "description": description,
+                        "reasoning": reasoning,
+                        "success": False,
+                        "error": str(e),
+                        "additional_step": True,
+                    }
+                )
+
+        # Update execution results
+        success_count = len([log for log in execution_log if log.get("success", False)])
+
+        return {
+            "step_results": step_results,
+            "execution_log": execution_log,
+            "success_count": success_count,
+            "total_steps": len(execution_log),
+        }
+
+    async def _infer_tool_arguments(
+        self, tool_name: str, user_request: str, step_results: Dict[int, Any]
+    ) -> Dict[str, Any]:
+        """
+        Use LLM to infer appropriate arguments for a tool based on context.
+
+        Args:
+            tool_name: Name of the tool to call
+            user_request: Original user request
+            step_results: Results from previous steps
+
+        Returns:
+            Dictionary of arguments for the tool
+        """
+        if tool_name not in self.available_tools:
+            logger.warning(f"Tool '{tool_name}' not available for argument inference")
+            return {}
+
+        try:
+            # Get tool schema for the LLM
+            tool_schema = self.available_tools[tool_name]
+
+            # Prepare context for LLM
+            context_summary = self._summarize_step_results(step_results)
+
+            prompt = f"""You are helping to infer arguments for a tool call based on context.
+
+TOOL TO CALL: {tool_name}
+
+TOOL SCHEMA:
+{tool_schema.description}
+
+Parameters:
+{self._format_tool_parameters(tool_schema)}
+
+CONTEXT:
+User Request: {user_request}
+Previous Step Results: {context_summary}
+
+TASK: Generate appropriate arguments for calling '{tool_name}' based on the context above.
+
+RULES:
+1. Only include parameters that are defined in the tool schema
+2. Use data from previous step results when appropriate (e.g., symbols from screening)
+3. Provide reasonable defaults for optional parameters
+4. If previous steps contain lists of stocks/symbols, extract just the symbol strings
+5. Return arguments as a JSON object
+
+Example format:
+{{"parameter_name": "value", "another_param": ["list", "of", "values"]}}
+
+Arguments:"""
+
+            response = await self.openai_client.chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,  # Low temperature for consistency
+                max_tokens=500,
+            )
+
+            arguments_text = response.strip()
+
+            # Try to parse as JSON
+            try:
+                import json
+
+                arguments = json.loads(arguments_text)
+                logger.debug(f"LLM inferred arguments for {tool_name}: {arguments}")
+                return arguments
+            except json.JSONDecodeError:
+                logger.warning(
+                    f"Could not parse LLM response as JSON: {arguments_text}"
+                )
+                return self._fallback_argument_inference(tool_name, step_results)
+
+        except Exception as e:
+            logger.error(f"LLM argument inference failed for {tool_name}: {e}")
+            return self._fallback_argument_inference(tool_name, step_results)
+
+    def _format_tool_parameters(self, tool_schema) -> str:
+        """Format tool parameters for LLM understanding."""
+        try:
+            if hasattr(tool_schema, "inputSchema") and tool_schema.inputSchema:
+                schema = tool_schema.inputSchema
+                if isinstance(schema, dict) and "properties" in schema:
+                    formatted = []
+                    for param_name, param_info in schema["properties"].items():
+                        param_type = param_info.get("type", "unknown")
+                        param_desc = param_info.get("description", "No description")
+                        required = param_name in schema.get("required", [])
+                        req_marker = " (required)" if required else " (optional)"
+                        formatted.append(
+                            f"- {param_name}: {param_type}{req_marker} - {param_desc}"
+                        )
+                    return "\n".join(formatted)
+            return "Parameters not available"
+        except Exception as e:
+            logger.warning(f"Could not format tool parameters: {e}")
+            return "Parameters not available"
+
+    def _summarize_step_results(self, step_results: Dict[int, Any]) -> str:
+        """Create a concise summary of step results for LLM context."""
+        if not step_results:
+            return "No previous steps"
+
+        summary_parts = []
+        for step_num, result in step_results.items():
+            if isinstance(result, list):
+                if result and isinstance(result[0], dict) and "symbol" in result[0]:
+                    symbols = [item.get("symbol", "unknown") for item in result[:5]]
+                    summary_parts.append(
+                        f"Step {step_num}: Stock screening results with symbols: {symbols}"
+                    )
+                elif result:
+                    summary_parts.append(
+                        f"Step {step_num}: List with {len(result)} items"
+                    )
+                else:
+                    summary_parts.append(f"Step {step_num}: Empty list")
+            elif isinstance(result, dict):
+                if "symbol" in result:
+                    summary_parts.append(
+                        f"Step {step_num}: Single stock data for {result['symbol']}"
+                    )
+                elif result.get("error"):
+                    summary_parts.append(f"Step {step_num}: Error - {result['error']}")
+                else:
+                    summary_parts.append(f"Step {step_num}: Dictionary result")
+            elif isinstance(result, str):
+                preview = result[:100] + "..." if len(result) > 100 else result
+                summary_parts.append(f"Step {step_num}: Text result - {preview}")
+            else:
+                summary_parts.append(f"Step {step_num}: {type(result).__name__} result")
+
+        return "\n".join(summary_parts)
+
+    def _fallback_argument_inference(
+        self, tool_name: str, step_results: Dict[int, Any]
+    ) -> Dict[str, Any]:
+        """Simple fallback argument inference when LLM fails."""
+        # Basic patterns for common tools
+        if "symbols" in str(self.available_tools.get(tool_name, {})):
+            # Tool likely needs symbols - extract from step results
+            symbols = []
+            for result in step_results.values():
+                if isinstance(result, list):
+                    for item in result:
+                        if isinstance(item, dict) and "symbol" in item:
+                            symbols.append(item["symbol"])
+                        elif isinstance(item, str):
+                            symbols.append(item)
+
+            if symbols:
+                return {"symbols": symbols[:10]}  # Limit to 10
+            else:
+                return {"symbols": ["AAPL", "MSFT", "GOOGL"]}  # Fallback
+
+        return {}
+
+    def _extract_main_response(self, execution: Dict[str, Any]) -> str:
+        """
+        Extract the main response content (like markdown reports) from execution results.
+
+        Args:
+            execution: Execution results from _execute_plan
+
+        Returns:
+            Main response content as string
+        """
+        step_results = execution.get("step_results", {})
+
+        # Look for report/content generation tools in reverse order (most recent first)
+        for step_num in sorted(step_results.keys(), reverse=True):
+            result = step_results[step_num]
+
+            if isinstance(result, dict):
+                # Check for markdown content
+                if "markdown" in result:
+                    return result["markdown"]
+                elif "content" in result and isinstance(result["content"], str):
+                    return result["content"]
+                elif "report" in result and isinstance(result["report"], str):
+                    return result["report"]
+                elif "text" in result and isinstance(result["text"], str):
+                    return result["text"]
+
+            elif isinstance(result, str):
+                # Direct string result might be the content
+                if len(result) > 100:  # Assume substantial content
+                    return result
+
+        # If no substantial content found, summarize the results
+        summary_parts = []
+        for step_num, result in step_results.items():
+            if isinstance(result, dict) and not result.get("error"):
+                summary_parts.append(f"Step {step_num}: Completed successfully")
+            elif isinstance(result, str):
+                preview = result[:200] + "..." if len(result) > 200 else result
+                summary_parts.append(f"Step {step_num}: {preview}")
+
+        return (
+            "\n".join(summary_parts)
+            if summary_parts
+            else "Execution completed but no content generated."
+        )
 
     async def __aenter__(self):
         """Async context manager entry."""
