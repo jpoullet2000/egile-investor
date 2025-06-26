@@ -64,7 +64,7 @@ class CopilotMCPAgent:
         try:
             # Clean up any existing connections first
             await self.disconnect()
-            
+
             command_parts = self.server_command.split()
             command = command_parts[0]
             args = command_parts[1:] if len(command_parts) > 1 else []
@@ -114,7 +114,7 @@ class CopilotMCPAgent:
             # Reset streams
             self._read_stream = None
             self._write_stream = None
-            
+
             logger.debug(f"🤖 {self.agent_name} disconnected")
 
         except Exception as e:
@@ -969,13 +969,13 @@ async def copilot_chat(
 ) -> str:
     """
     Have a one-off chat interaction with the Copilot agent.
-    
+
     Args:
         user_input: The user's message/question
         server_command: Command to start the MCP server
         config: Configuration for the OpenAI client
         agent_name: Name for the agent
-        
+
     Returns:
         Response from the agent
     """
