@@ -6,7 +6,7 @@ This server exposes investment agent capabilities as MCP tools.
 
 import asyncio
 from typing import Any, Dict, List, Optional, Union
-from datetime import datetime
+from datetime import datetime, date
 
 import structlog
 from fastmcp import FastMCP
@@ -16,6 +16,24 @@ from .config import InvestmentAgentConfig, AzureOpenAIConfig
 
 
 logger = structlog.get_logger(__name__)
+
+# Current date context for analysis
+CURRENT_DATE = date(2025, 6, 26)  # June 26, 2025
+CURRENT_YEAR = 2025
+CURRENT_QUARTER = "Q2 2025"
+
+
+def get_date_context() -> Dict[str, Any]:
+    """Get current date context for analysis tools."""
+    return {
+        "current_date": CURRENT_DATE.isoformat(),
+        "current_year": CURRENT_YEAR,
+        "current_quarter": CURRENT_QUARTER,
+        "analysis_context": f"Analysis performed on {CURRENT_DATE.strftime('%B %d, %Y')}",
+        "market_year": CURRENT_YEAR,
+        "ytd_period": f"January 1, {CURRENT_YEAR} to {CURRENT_DATE.strftime('%B %d, %Y')}",
+    }
+
 
 # Global investment agent instance
 investment_agent: Optional[InvestmentAgent] = None
@@ -45,6 +63,7 @@ async def analyze_stock(
 ) -> Dict[str, Any]:
     """
     Perform comprehensive stock analysis with technical and fundamental insights.
+    Analysis is performed with context of current date: June 26, 2025.
 
     Args:
         symbol: Stock symbol (e.g., 'AAPL', 'MSFT')
@@ -53,15 +72,32 @@ async def analyze_stock(
         include_fundamental: Whether to include fundamental analysis
 
     Returns:
-        Complete stock analysis with recommendations
+        Complete stock analysis with recommendations including date context
     """
     agent = await get_investment_agent()
-    return await agent.analyze_stock(
+
+    # Get date context for analysis
+    date_context = get_date_context()
+
+    result = await agent.analyze_stock(
         symbol=symbol,
         analysis_type=analysis_type,
         include_technical=include_technical,
         include_fundamental=include_fundamental,
     )
+
+    # Add date context to results
+    if isinstance(result, dict):
+        result.update(
+            {
+                "analysis_date": date_context["current_date"],
+                "market_context": f"Analysis for {symbol} as of {date_context['analysis_context']}",
+                "current_year": date_context["current_year"],
+                "ytd_context": date_context["ytd_period"],
+            }
+        )
+
+    return result
 
 
 @mcp.tool()
@@ -98,6 +134,7 @@ async def screen_stocks(
 ) -> List[Dict[str, Any]]:
     """
     Screen stocks based on various financial criteria. Results can be used with generate_report to create analysis reports.
+    Screening performed with current market context as of June 26, 2025.
 
     Args:
         criteria: Screening criteria (e.g., {"pe_ratio": {"max": 25}, "roe": {"min": 0.15}})
@@ -109,7 +146,7 @@ async def screen_stocks(
         use_sp500: If True, screen all S&P 500 stocks (500+ stocks) regardless of universe
 
     Returns:
-        List of stocks meeting the criteria with scores. Use with generate_report for detailed analysis.
+        List of stocks meeting the criteria with scores and date context. Use with generate_report for detailed analysis.
 
     Examples:
         - Screen value stocks: {"pe_ratio": {"max": 15}, "dividend_yield": {"min": 0.03}}
@@ -119,6 +156,8 @@ async def screen_stocks(
         - Screen Dow 30: {"pe_ratio": {"max": 25}}, universe="dow30"
         - Screen custom list: {"pe_ratio": {"max": 25}}, universe=["AAPL", "MSFT", "GOOGL"]
     """
+    date_context = get_date_context()
+
     agent = await get_investment_agent()
     screened = await agent.screen_stocks(
         criteria=criteria,
@@ -126,6 +165,19 @@ async def screen_stocks(
         max_results=max_results,
         use_sp500=use_sp500,
     )
+
+    # Add date context to screening results
+    if isinstance(screened, list):
+        for stock in screened:
+            if isinstance(stock, dict):
+                stock.update(
+                    {
+                        "screening_date": date_context["current_date"],
+                        "market_year": date_context["current_year"],
+                        "screening_context": f"Screened on {date_context['analysis_context']}",
+                    }
+                )
+
     return screened
 
 
@@ -241,21 +293,27 @@ async def sentiment_analysis(
 ) -> Dict[str, Any]:
     """
     Analyze market sentiment from news and social media.
+    Analysis includes current market context as of June 26, 2025.
 
     Args:
         symbol: Stock symbol
         sources: List of sources to analyze (news, twitter, reddit)
 
     Returns:
-        Sentiment analysis results with scores and trends
+        Sentiment analysis results with scores and trends including date context
     """
+    date_context = get_date_context()
+
     # This would integrate with news APIs and sentiment analysis
-    # For now, return a placeholder
+    # For now, return a placeholder with date context
     return {
         "symbol": symbol,
         "sentiment_score": 0.65,  # Placeholder: 0-1 scale
         "sentiment_trend": "positive",
         "sources_analyzed": sources or ["news", "social_media"],
+        "analysis_date": date_context["current_date"],
+        "market_context": f"Sentiment analysis for {symbol} as of {date_context['analysis_context']}",
+        "time_period": f"Current sentiment as of {CURRENT_QUARTER}",
         "summary": f"Market sentiment for {symbol} appears moderately positive based on recent news and social media activity.",
     }
 
@@ -321,6 +379,7 @@ async def generate_report(
     """
     Generate comprehensive investment analysis reports and optionally save to file.
     Can create both full reports and word-limited summaries.
+    Reports include current market context as of June 26, 2025.
 
     Args:
         analysis_type: Type of report (stock_analysis, portfolio_review, market_outlook)
@@ -331,9 +390,12 @@ async def generate_report(
         max_words: Optional maximum word count for the report. If specified, generates a concise summary version.
 
     Returns:
-        Generated report with formatted content and file information
+        Generated report with formatted content and file information including date context
     """
     from datetime import datetime
+
+    # Get current date context
+    date_context = get_date_context()
 
     # Handle both string and dict data
     if isinstance(data, str):
@@ -347,20 +409,28 @@ async def generate_report(
         data_dict = data or {}
         title = f"{analysis_type.replace('_', ' ').title()} Report"
 
-    # Generate report content
+    # Generate report content using current date context
     timestamp = datetime.now()
     formatted_timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Create comprehensive markdown content
+    # Create comprehensive markdown content with date context
     content = f"""# {title}
 
-*Generated on {formatted_timestamp}*
+*Generated on {date_context["analysis_context"]}*
 
 ## Report Summary
 
 **Analysis Type:** {analysis_type.replace("_", " ").title()}  
 **Format:** {format_type}  
+**Analysis Date:** {date_context["current_date"]}  
+**Market Context:** {date_context["current_quarter"]} Analysis  
 **Generated At:** {formatted_timestamp}
+
+## Market Context
+
+**Current Market Year:** {date_context["current_year"]}  
+**Analysis Period:** {date_context["ytd_period"]}  
+**Report Context:** Analysis performed during {date_context["current_quarter"]}
 
 ## Analysis Data
 
@@ -2401,17 +2471,230 @@ Key considerations for 2025 investments:
     return response
 
 
-def main():
-    """Main entry point for the MCP server."""
+@mcp.tool()
+async def get_current_price(
+    symbol: str,
+    include_details: bool = True,
+) -> Dict[str, Any]:
+    """
+    Get the most current stock price with multiple fallback methods.
+    This tool focuses specifically on getting the latest available price data.
+
+    Args:
+        symbol: Stock symbol (e.g., 'AAPL', 'AMZN')
+        include_details: Whether to include additional price details (change, volume, etc.)
+
+    Returns:
+        Current price information with timestamp and data source details
+    """
+    agent = await get_investment_agent()
+    date_context = get_date_context()
+
     try:
-        logger.info("Starting Egile Investor MCP Server")
-        mcp.run()
+        # Get basic stock data
+        stock_data = await agent.get_stock_data(
+            symbol=symbol, period="1d", source="yahoo"
+        )
+
+        info = stock_data.get("info", {})
+        hist_data = stock_data.get("historical_data", {})
+
+        # Try multiple price fields in order of preference
+        current_price = None
+        price_source = "unknown"
+
+        # Method 1: Current price from info
+        if info.get("currentPrice"):
+            current_price = info["currentPrice"]
+            price_source = "currentPrice_field"
+        elif info.get("regularMarketPrice"):
+            current_price = info["regularMarketPrice"]
+            price_source = "regularMarketPrice_field"
+        elif info.get("previousClose"):
+            current_price = info["previousClose"]
+            price_source = "previousClose_field"
+
+        # Method 2: Latest from historical data if info fields are missing
+        if not current_price and hist_data.get("Close"):
+            close_prices = hist_data["Close"]
+            if close_prices:
+                # Get the most recent date
+                latest_date = max(close_prices.keys())
+                current_price = close_prices[latest_date]
+                price_source = f"historical_close_{latest_date}"
+
+        # Prepare result
+        result = {
+            "symbol": symbol,
+            "current_price": current_price,
+            "price_source": price_source,
+            "timestamp": date_context["current_date"],
+            "retrieval_context": f"Price retrieved on {date_context['analysis_context']}",
+        }
+
+        if include_details and info:
+            # Add additional price details
+            result.update(
+                {
+                    "company_name": info.get("longName") or info.get("shortName"),
+                    "currency": info.get("currency", "USD"),
+                    "market_state": info.get("marketState"),
+                    "previous_close": info.get("previousClose"),
+                    "regular_market_change": info.get("regularMarketChange"),
+                    "regular_market_change_percent": info.get(
+                        "regularMarketChangePercent"
+                    ),
+                    "market_cap": info.get("marketCap"),
+                    "volume": info.get("volume") or info.get("regularMarketVolume"),
+                    "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+                    "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+                }
+            )
+
+            # Add recent price trend if historical data available
+            if hist_data.get("Close"):
+                close_prices = hist_data["Close"]
+                sorted_dates = sorted(close_prices.keys())[-5:]  # Last 5 trading days
+                recent_prices = {date: close_prices[date] for date in sorted_dates}
+                result["recent_prices"] = recent_prices
+
+        return result
+
+    except Exception as e:
+        return {
+            "symbol": symbol,
+            "error": str(e),
+            "current_price": None,
+            "price_source": "error",
+            "timestamp": date_context["current_date"],
+            "message": f"Failed to retrieve current price for {symbol}: {e}",
+        }
+
+
+@mcp.tool()
+async def extract_price_from_market_data(
+    market_data: Union[str, Dict[str, Any]],
+    symbol: str = "",
+) -> Dict[str, Any]:
+    """
+    Extract current price information from market data results.
+    Use this tool to get the most current price from get_market_data results.
+
+    Args:
+        market_data: Market data from get_market_data tool (JSON string or dict)
+        symbol: Optional symbol for context
+
+    Returns:
+        Extracted current price information with details about data freshness
+    """
+    import json
+    from datetime import datetime
+
+    try:
+        # Parse market data if it's a string
+        if isinstance(market_data, str):
+            data = json.loads(market_data)
+        else:
+            data = market_data
+
+        symbol = symbol or data.get("symbol", "UNKNOWN")
+        info = data.get("info", {})
+        hist_data = data.get("historical_data", {})
+
+        # Extract current price using multiple methods
+        price_info = {
+            "symbol": symbol,
+            "extraction_timestamp": datetime.now().isoformat(),
+        }
+
+        # Method 1: Info fields
+        current_price = None
+        price_methods = []
+
+        if info.get("currentPrice"):
+            current_price = info["currentPrice"]
+            price_methods.append(f"currentPrice: ${current_price}")
+
+        if info.get("regularMarketPrice"):
+            price_methods.append(f"regularMarketPrice: ${info['regularMarketPrice']}")
+            if not current_price:
+                current_price = info["regularMarketPrice"]
+
+        if info.get("previousClose"):
+            price_methods.append(f"previousClose: ${info['previousClose']}")
+            if not current_price:
+                current_price = info["previousClose"]
+
+        # Method 2: Historical data (most recent)
+        if hist_data.get("Close"):
+            close_prices = hist_data["Close"]
+            if close_prices:
+                latest_date = max(close_prices.keys())
+                latest_close = close_prices[latest_date]
+                price_methods.append(
+                    f"latest_historical: ${latest_close} ({latest_date})"
+                )
+                if not current_price:
+                    current_price = latest_close
+
+        price_info.update(
+            {
+                "current_price": current_price,
+                "available_price_methods": price_methods,
+                "recommended_price": current_price,
+                "company_name": info.get("longName") or info.get("shortName"),
+                "market_state": info.get("marketState"),
+                "data_source": data.get("source", "unknown"),
+                "data_timestamp": data.get("timestamp"),
+            }
+        )
+
+        # Add change information if available
+        change = info.get("regularMarketChange")
+        change_pct = info.get("regularMarketChangePercent")
+        if change is not None and change_pct is not None:
+            price_info.update(
+                {
+                    "daily_change": change,
+                    "daily_change_percent": change_pct,
+                    "change_direction": "up"
+                    if change > 0
+                    else "down"
+                    if change < 0
+                    else "flat",
+                }
+            )
+
+        return price_info
+
+    except Exception as e:
+        return {
+            "symbol": symbol,
+            "error": str(e),
+            "current_price": None,
+            "extraction_timestamp": datetime.now().isoformat(),
+            "message": f"Failed to extract price from market data: {e}",
+        }
+
+
+# Main execution
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        """Main function to run the MCP server."""
+        logger.info("Starting Egile Investor MCP Server...")
+        try:
+            # Use the FastMCP run method with proper transport
+            await mcp.run(transport="stdio")
+        except Exception as e:
+            logger.error(f"Server failed to start: {e}")
+            raise
+
+    try:
+        asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Server shutdown requested")
+        logger.info("Server stopped by user")
     except Exception as e:
         logger.error(f"Server error: {e}")
         raise
-
-
-if __name__ == "__main__":
-    main()
